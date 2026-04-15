@@ -1,0 +1,11 @@
+{
+  "name": "Fusion-Party-Aus/aometry-repo",
+  "version": "1.0.0",
+  "modules": [
+    {
+      "name": "governance",
+      "path": "governance",
+      "description": "Fusion Party governance and voting system"
+    }
+  ]
+}

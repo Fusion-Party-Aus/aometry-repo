@@ -1,0 +1,34 @@
+{
+  "name": "governance",
+  "version": "1.0.0",
+  "description": "Fusion Party governance and voting system",
+  "commands": [
+    { 
+      "name": "ncap", 
+      "path": "ncap/submit.ts", 
+      "description": "Submit a proposal for NCAP (Negative Consent Approval Protocol) authorization" 
+    },
+    { 
+      "name": "Submit to NCAP", 
+      "path": "ncap/context.ts", 
+      "description": "Context menu command to submit message to NCAP" 
+    },
+    { 
+      "name": "motion-propose", 
+      "path": "motions/propose.ts", 
+      "description": "Propose a formal committee motion" 
+    },
+    { 
+      "name": "generate-minutes", 
+      "path": "minutes.ts", 
+      "description": "Generate committee minutes for a date range" 
+    }
+  ],
+  "events": [
+    { 
+      "name": "messageCreate", 
+      "path": "events/messageCreate.ts",
+      "type": "MessageCreate"
+    }
+  ]
+}
