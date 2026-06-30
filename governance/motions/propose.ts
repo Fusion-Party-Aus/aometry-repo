@@ -72,8 +72,8 @@ const command: Command = {
     const currentYear = moment().year();
     const countQuery = db
       .prepare("SELECT COUNT(*) as count FROM motions")
-      .get();
-    const nextId = (countQuery.count as number) + 1;
+      .get() as { count: number };
+    const nextId = countQuery.count + 1;
     const motionId = `MOTION-${currentYear}-${String(nextId).padStart(3, "0")}`;
 
     const closesAt = moment().add(48, "hours"); // Default 48h
