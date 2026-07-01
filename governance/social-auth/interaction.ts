@@ -351,12 +351,21 @@ async function resolveApproved(
   submission: SocialAuthSubmission,
   reason: string
 ) {
+  // Resolve publishMode and scheduledAt before the atomic write so both are
+  // persisted in a single transaction — no gap where APPROVED has no scheduledAt.
+  const holdMinutes = 15;
+  const hadObjections = submission.objectVotes.length > 0;
+  const wasSupermajority = reason.includes('Supermajority');
+  const publishMode = resolvePublishMode(submission.sensitivity, hadObjections, wasSupermajority);
+  const autoPublishAt = publishMode === 'hold' ? new Date(Date.now() + holdMinutes * 60000) : undefined;
+
   const approved: SocialAuthSubmission = {
     ...submission,
     status: AuthPostStatus.APPROVED,
     resolvedAt: new Date(),
     outcome: "approved",
     outcomeReason: reason,
+    ...(autoPublishAt && { scheduledAt: autoPublishAt, holdUntil: autoPublishAt }),
   };
 
   // Only proceed if the submission is still PENDING in the DB (concurrent-safe).
@@ -373,10 +382,6 @@ async function resolveApproved(
       embeds: [errorEmbed("Already Resolved", `${submission.id} was already resolved by a concurrent interaction.`)],
     });
   }
-
-  const hadObjections = submission.objectVotes.length > 0;
-  const wasSupermajority = reason.includes('Supermajority');
-  const publishMode = resolvePublishMode(approved.sensitivity, hadObjections, wasSupermajority);
 
   const message = await getInteractionMessage(interaction, submission.messageId);
 
@@ -400,13 +405,11 @@ async function resolveApproved(
   }
 
   if (publishMode === 'hold') {
-    // 15-minute hold window — auto-publishes via timer service unless withdrawn
-    const holdMinutes = 15;
-    const autoPublishAt = new Date(Date.now() + holdMinutes * 60000);
+    // 15-minute hold window — holdUntil and scheduledAt both persisted atomically above.
     const holdEmbed = new EmbedBuilder()
       .setTitle(`✅ ${approved.id} Approved — Publishing in ${holdMinutes}m`)
       .setDescription(
-        `Approved (${reason}). Auto-publishes <t:${Math.floor(autoPublishAt.getTime() / 1000)}:R>.\n` +
+        `Approved (${reason}). Auto-publishes <t:${Math.floor(autoPublishAt!.getTime() / 1000)}:R>.\n` +
         `Destinations: ${approved.destinations.join(', ')}`
       )
       .setColor(0xffa500);
@@ -414,8 +417,6 @@ async function resolveApproved(
       new ButtonBuilder().setCustomId(`authpost_cancel_hold_${approved.id}`).setLabel('🚫 Cancel Hold').setStyle(ButtonStyle.Danger),
     );
     if (message) await message.edit({ embeds: [holdEmbed], components: [cancelButton] });
-    // holdUntil drives the timer auto-publish; scheduledAt (Fedica post time) is left intact.
-    db.updateSubmission({ ...approved, holdUntil: autoPublishAt });
     return interaction.editReply({
       embeds: [{ title: '✅ Approved', description: `**${approved.id}** approved. Auto-publishes in ${holdMinutes} minutes unless cancelled.`, color: 0xffa500 }],
     });
