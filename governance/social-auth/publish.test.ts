@@ -53,16 +53,16 @@ describe('nextWeekdayAt9amAest', () => {
     expect(d.getTime()).toBeGreaterThan(FIXED_NOW.getTime());
   });
 
-  it('falls on a weekday (Mon–Fri)', () => {
+  it('falls on a weekday (Mon–Fri) at 09:00 Sydney time', () => {
     const d = nextWeekdayAt9amAest();
-    // After converting back from AEST the UTC day may differ; check day of week in AEST
-    const aestHour = ((d.getUTCHours() + 10) % 24);
-    expect(aestHour).toBe(9);
-    // Day in AEST coordinates
-    const aestDate = new Date(d.getTime() + 10 * 3600 * 1000);
-    const aestDay = aestDate.getUTCDay();
-    expect(aestDay).not.toBe(0); // not Sunday
-    expect(aestDay).not.toBe(6); // not Saturday
+    const fmt = new Intl.DateTimeFormat('en-AU', {
+      timeZone: 'Australia/Sydney', hour: '2-digit', minute: '2-digit', weekday: 'short', hour12: false,
+    });
+    const parts = fmt.formatToParts(d);
+    const get = (t: string) => parts.find(p => p.type === t)!.value;
+    expect(parseInt(get('hour'), 10) % 24).toBe(9);
+    expect(get('minute')).toBe('00');
+    expect(['Sun', 'Sat']).not.toContain(get('weekday'));
   });
 
   it('is 09:00 AEST (23:00 UTC previous day)', () => {
@@ -78,6 +78,23 @@ describe('nextWeekdayAt9amAest', () => {
     const d = nextWeekdayAt9amAest();
     const aestDate = new Date(d.getTime() + 10 * 3600 * 1000);
     expect(aestDate.getUTCDay()).toBe(1); // Monday
+  });
+
+  it('uses AEDT offset (UTC+11) during Australian summer (January)', () => {
+    // 2026-01-15 12:00 UTC = 23:00 AEDT (UTC+11) — still Thursday
+    vi.setSystemTime(new Date('2026-01-15T12:00:00Z'));
+    const d = nextWeekdayAt9amAest();
+    // Next weekday 9am AEDT = Fri 2026-01-16 09:00 AEDT = 2026-01-15T22:00:00Z (UTC+11)
+    expect(d.toISOString()).toBe('2026-01-15T22:00:00.000Z');
+  });
+});
+
+describe('parseScheduleFromText AEDT', () => {
+  it('interprets schedule datetime using Sydney local time (AEDT in January)', () => {
+    vi.setSystemTime(new Date('2026-01-01T00:00:00Z'));
+    // 2026-01-15T09:00 in Sydney = AEDT = UTC+11 → 2026-01-14T22:00Z
+    const d = parseScheduleFromText('schedule: 2026-01-15T09:00');
+    expect(d?.toISOString()).toBe('2026-01-14T22:00:00.000Z');
   });
 });
 

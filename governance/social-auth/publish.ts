@@ -31,29 +31,49 @@ const PLATFORM_MAP: Partial<Record<Destination, string>> = {
   'LinkedIn':   'linkedin',
 };
 
-// AEST = UTC+10. Australian summer (AEDT) uses UTC+11; accepted approximation here.
-const AEST_OFFSET_MS = 10 * 3600 * 1000;
+const SYDNEY_TZ = 'Australia/Sydney';
+
+/** Return the Sydney UTC offset in milliseconds at a given UTC timestamp (handles AEST/AEDT). */
+function sydneyOffsetMs(utcMs: number): number {
+  const fmt = new Intl.DateTimeFormat('en-AU', {
+    timeZone: SYDNEY_TZ,
+    year: 'numeric', month: '2-digit', day: '2-digit',
+    hour: '2-digit', minute: '2-digit', second: '2-digit', hour12: false,
+  });
+  const parts = fmt.formatToParts(new Date(utcMs));
+  const get = (t: string) => parseInt(parts.find(p => p.type === t)!.value, 10);
+  const sydneyWall = Date.UTC(get('year'), get('month') - 1, get('day'), get('hour') % 24, get('minute'), get('second'));
+  return sydneyWall - utcMs;
+}
 
 /**
- * Returns the next weekday at 09:00 AEST as a UTC Date.
+ * Returns the next weekday at 09:00 Sydney time (AEST or AEDT) as a UTC Date.
  * Default schedule time when the submitter does not specify one.
  */
 export function nextWeekdayAt9amAest(): Date {
-  // Shift 'now' into AEST-coordinate space by adding the UTC+10 offset.
-  const nowAsAest = Date.now() + AEST_OFFSET_MS;
-  const d = new Date(nowAsAest);
+  const weekdayFmt = new Intl.DateTimeFormat('en-AU', { timeZone: SYDNEY_TZ, weekday: 'short' });
+  const dateFmt = new Intl.DateTimeFormat('en-AU', {
+    timeZone: SYDNEY_TZ, year: 'numeric', month: '2-digit', day: '2-digit',
+  });
 
-  // Advance to tomorrow at 09:00 in AEST coordinates.
-  d.setUTCDate(d.getUTCDate() + 1);
-  d.setUTCHours(9, 0, 0, 0);
+  for (let daysAhead = 1; daysAhead <= 7; daysAhead++) {
+    const trialUtc = Date.now() + daysAhead * 86400000;
+    const offsetMs = sydneyOffsetMs(trialUtc);
 
-  // Skip Saturday (6) and Sunday (0).
-  while (d.getUTCDay() === 0 || d.getUTCDay() === 6) {
-    d.setUTCDate(d.getUTCDate() + 1);
+    const parts = dateFmt.formatToParts(new Date(trialUtc));
+    const get = (t: string) => parseInt(parts.find(p => p.type === t)!.value, 10);
+
+    // Compute 09:00 Sydney wall-clock on this calendar day as UTC.
+    const nineAmUtc = Date.UTC(get('year'), get('month') - 1, get('day'), 9, 0, 0) - offsetMs;
+
+    const dayName = weekdayFmt.format(new Date(nineAmUtc));
+    if (dayName !== 'Sat' && dayName !== 'Sun') {
+      return new Date(nineAmUtc);
+    }
   }
 
-  // Convert back to real UTC.
-  return new Date(d.getTime() - AEST_OFFSET_MS);
+  // Unreachable: 7-day window always contains a weekday.
+  throw new Error('Could not find a weekday in the next 7 days');
 }
 
 /**
@@ -65,7 +85,18 @@ export function parseScheduleFromText(text: string): Date | null {
   const match = text.match(/\bschedule:\s*(\d{4}-\d{2}-\d{2}[T ]\d{2}:\d{2})/i);
   if (!match) return null;
   const raw = match[1].replace(' ', 'T');
-  const ms = Date.parse(`${raw}:00+10:00`);
+
+  // Parse the datetime as a naive local time, then determine the correct Sydney offset
+  // for that instant (handles both AEST UTC+10 and AEDT UTC+11).
+  // First pass: estimate UTC using UTC+10 to get a rough Sydney date, then re-derive offset.
+  const roughMs = Date.parse(`${raw}:00+10:00`);
+  if (isNaN(roughMs)) return null;
+  const offsetMs = sydneyOffsetMs(roughMs);
+  // Second pass: apply the correct offset for that date.
+  const [datePart, timePart] = raw.split('T');
+  const [y, mo, dy] = datePart.split('-').map(Number);
+  const [hr, mn] = timePart.split(':').map(Number);
+  const ms = Date.UTC(y, mo - 1, dy, hr, mn, 0) - offsetMs;
   if (isNaN(ms)) return null;
   const d = new Date(ms);
   return d > new Date() ? d : null; // Discard past dates.
