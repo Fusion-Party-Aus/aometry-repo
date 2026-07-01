@@ -75,6 +75,10 @@ export default async function handleSocialAuthInteraction(
       return handleAuthPostManualPublish(interaction, client);
     } else if (customId.startsWith("authpost_withdraw_")) {
       return handleAuthPostWithdraw(interaction, client);
+    } else if (customId.startsWith("authpost_request_edit_")) {
+      return handleAuthPostRequestEdit(interaction, client);
+    } else if (customId.startsWith("authpost_cancel_hold_")) {
+      return handleAuthPostCancelHold(interaction, client);
     }
   }
 }
@@ -343,7 +347,7 @@ async function resolveApproved(
       )
       .setColor(0xffa500);
     const cancelButton = new ActionRowBuilder<ButtonBuilder>().addComponents(
-      new ButtonBuilder().setCustomId(`authpost_withdraw_${approved.id}`).setLabel('🚫 Cancel').setStyle(ButtonStyle.Danger),
+      new ButtonBuilder().setCustomId(`authpost_cancel_hold_${approved.id}`).setLabel('🚫 Cancel Hold').setStyle(ButtonStyle.Danger),
     );
     if (message) await message.edit({ embeds: [holdEmbed], components: [cancelButton] });
     db.updateSubmission({ ...approved, scheduledAt: autoPublishAt });
@@ -390,7 +394,13 @@ async function resolveApproved(
         : `Destinations: ${approved.destinations.join(", ")}\nError: ${result.error}`
     )
     .setColor(result.success ? 0x00aa00 : 0xff4444);
-  if (message) await message.edit({ embeds: [finalEmbed], components: [] });
+  const finalComponents = result.success ? [] : [
+    new ActionRowBuilder<ButtonBuilder>().addComponents(
+      new ButtonBuilder().setCustomId(`authpost_publish_${approved.id}`).setLabel('🔄 Retry Publish').setStyle(ButtonStyle.Primary),
+      new ButtonBuilder().setCustomId(`authpost_withdraw_${approved.id}`).setLabel('🚫 Withdraw').setStyle(ButtonStyle.Danger),
+    ),
+  ];
+  if (message) await message.edit({ embeds: [finalEmbed], components: finalComponents });
 
   return interaction.editReply({
     embeds: [{
@@ -634,6 +644,7 @@ function createAuthPostButtons(postId: string): ActionRowBuilder<ButtonBuilder>[
       new ButtonBuilder().setCustomId(`authpost_approve_${postId}`).setLabel("✅ Approve").setStyle(ButtonStyle.Success),
       new ButtonBuilder().setCustomId(`authpost_object_${postId}`).setLabel("❌ Object").setStyle(ButtonStyle.Danger),
       new ButtonBuilder().setCustomId(`authpost_edit_open_${postId}`).setLabel("✏️ Edit").setStyle(ButtonStyle.Secondary),
+      new ButtonBuilder().setCustomId(`authpost_request_edit_${postId}`).setLabel("↩️ Send Back").setStyle(ButtonStyle.Secondary),
       new ButtonBuilder().setCustomId(`authpost_info_${postId}`).setLabel("📋 Details").setStyle(ButtonStyle.Primary)
     ),
   ];
@@ -646,7 +657,7 @@ async function handleAuthPostManualPublish(interaction: ButtonInteraction, _clie
     const postId = interaction.customId.split("_")[2];
     const submission = db.getSubmission(postId);
     if (!submission) return interaction.editReply({ embeds: [errorEmbed("Not Found", "Auth post not found")] });
-    if (submission.status !== AuthPostStatus.APPROVED) {
+    if (submission.status !== AuthPostStatus.APPROVED && submission.status !== AuthPostStatus.PUBLISH_FAILED) {
       return interaction.editReply({ embeds: [errorEmbed("Invalid State", `Post is ${submission.status}, not approved`)] });
     }
 
@@ -668,7 +679,13 @@ async function handleAuthPostManualPublish(interaction: ButtonInteraction, _clie
       .setTitle(result.success ? `📅 ${submission.id} Scheduled` : `❌ ${submission.id} Publish Failed`)
       .setDescription(result.success ? `Destinations: ${submission.destinations.join(', ')}${schedStr}\nFedica ID: ${result.fedicaPostId}` : `Error: ${result.error}`)
       .setColor(result.success ? 0x00aa00 : 0xff4444);
-    if (message) await message.edit({ embeds: [finalEmbed], components: [] });
+    const retryComponents = result.success ? [] : [
+      new ActionRowBuilder<ButtonBuilder>().addComponents(
+        new ButtonBuilder().setCustomId(`authpost_publish_${submission.id}`).setLabel('🔄 Retry Publish').setStyle(ButtonStyle.Primary),
+        new ButtonBuilder().setCustomId(`authpost_withdraw_${submission.id}`).setLabel('🚫 Withdraw').setStyle(ButtonStyle.Danger),
+      ),
+    ];
+    if (message) await message.edit({ embeds: [finalEmbed], components: retryComponents });
 
     return interaction.editReply({
       embeds: [{ title: result.success ? '✅ Published' : '⚠️ Publish Failed', description: result.success ? `**${submission.id}** scheduled on Fedica.${schedStr}` : result.error, color: result.success ? 0x00aa00 : 0xff4444 }],
@@ -707,6 +724,118 @@ async function handleAuthPostWithdraw(interaction: ButtonInteraction, _client: B
   }
 }
 
+/**
+ * Approver sends the post back to the submitter for revisions.
+ * Sets status to IN_EDIT, pausing the timer and showing a Resubmit button.
+ */
+async function handleAuthPostRequestEdit(interaction: ButtonInteraction, _client: BotClient) {
+  try {
+    await interaction.deferReply({ ephemeral: true });
+    const db = new SocialAuthDatabaseManager();
+    const postId = interaction.customId.split("_")[3];
+    const submission = db.getSubmission(postId);
+    if (!submission) return interaction.editReply({ embeds: [errorEmbed("Not Found", "Auth post not found")] });
+    if (submission.status !== AuthPostStatus.PENDING) {
+      return interaction.editReply({ embeds: [errorEmbed("Invalid State", `Post is ${submission.status}, not pending`)] });
+    }
+
+    db.updateSubmission({ ...submission, status: AuthPostStatus.IN_EDIT });
+    db.addAuditLog({
+      postId,
+      eventType: 'edit',
+      actorId: interaction.user.id,
+      actorName: interaction.user.username,
+      timestamp: new Date(),
+      details: { action: 'sent_for_edits' },
+    });
+
+    const needsEditsEmbed = new EmbedBuilder()
+      .setTitle(`✏️ ${postId} — Needs Edits`)
+      .setDescription(
+        `Sent back for edits by <@${interaction.user.id}>.\n` +
+        `<@${submission.submitterId}> please revise and click **Resubmit**.`
+      )
+      .setColor(0x5c9de0);
+    const resubmitButtons = new ActionRowBuilder<ButtonBuilder>().addComponents(
+      new ButtonBuilder().setCustomId(`authpost_edit_open_${postId}`).setLabel('✏️ Resubmit').setStyle(ButtonStyle.Primary),
+      new ButtonBuilder().setCustomId(`authpost_withdraw_${postId}`).setLabel('🚫 Withdraw').setStyle(ButtonStyle.Danger),
+      new ButtonBuilder().setCustomId(`authpost_info_${postId}`).setLabel('📋 Details').setStyle(ButtonStyle.Secondary),
+    );
+
+    const message = await getInteractionMessage(interaction, submission.messageId);
+    if (message) await message.edit({ embeds: [needsEditsEmbed], components: [resubmitButtons] });
+
+    return interaction.editReply({
+      embeds: [{
+        title: '↩️ Sent for Edits',
+        description: `**${postId}** sent back to <@${submission.submitterId}> for revisions.`,
+        color: 0x5c9de0,
+      }],
+    });
+  } catch (error) {
+    return interaction.editReply({ embeds: [errorEmbed("Error", String(error))] });
+  }
+}
+
+/**
+ * Cancel the 15-minute hold window and revert to manual-publish mode.
+ * Keeps the APPROVED status but clears scheduledAt so the timer service won't auto-fire.
+ */
+async function handleAuthPostCancelHold(interaction: ButtonInteraction, _client: BotClient) {
+  try {
+    await interaction.deferReply({ ephemeral: true });
+    const db = new SocialAuthDatabaseManager();
+    const postId = interaction.customId.split("_")[3];
+    const submission = db.getSubmission(postId);
+    if (!submission) return interaction.editReply({ embeds: [errorEmbed("Not Found", "Auth post not found")] });
+    if (submission.status !== AuthPostStatus.APPROVED) {
+      return interaction.editReply({ embeds: [errorEmbed("Invalid State", `Post is ${submission.status}, not approved`)] });
+    }
+
+    const canCancel = interaction.user.id === submission.submitterId ||
+      interaction.memberPermissions?.has('ManageMessages');
+    if (!canCancel) {
+      return interaction.editReply({ embeds: [errorEmbed("Unauthorized", "Only the submitter or a moderator can cancel the hold")] });
+    }
+
+    // Clear scheduledAt so the timer service won't auto-publish
+    db.updateSubmission({ ...submission, scheduledAt: undefined });
+    db.addAuditLog({
+      postId,
+      eventType: 'timer_update',
+      actorId: interaction.user.id,
+      actorName: interaction.user.username,
+      timestamp: new Date(),
+      details: { action: 'hold_cancelled' },
+    });
+
+    const manualEmbed = new EmbedBuilder()
+      .setTitle(`✅ ${postId} Approved — Awaiting Manual Publish`)
+      .setDescription(
+        `Hold cancelled by <@${interaction.user.id}>. Use the Publish button when ready.\n` +
+        `Destinations: ${submission.destinations.join(', ')}`
+      )
+      .setColor(0x5c9de0);
+    const publishButtons = new ActionRowBuilder<ButtonBuilder>().addComponents(
+      new ButtonBuilder().setCustomId(`authpost_publish_${postId}`).setLabel('📤 Publish to Fedica').setStyle(ButtonStyle.Primary),
+      new ButtonBuilder().setCustomId(`authpost_withdraw_${postId}`).setLabel('🚫 Withdraw').setStyle(ButtonStyle.Danger),
+    );
+
+    const message = await getInteractionMessage(interaction, submission.messageId);
+    if (message) await message.edit({ embeds: [manualEmbed], components: [publishButtons] });
+
+    return interaction.editReply({
+      embeds: [{
+        title: '✅ Hold Cancelled',
+        description: `**${postId}** auto-publish cancelled. Use the Publish button when ready.`,
+        color: 0x5c9de0,
+      }],
+    });
+  } catch (error) {
+    return interaction.editReply({ embeds: [errorEmbed("Error", String(error))] });
+  }
+}
+
 async function getInteractionMessage(interaction: ButtonInteraction, messageId: string) {
   if (!messageId || !interaction.channel || !("messages" in interaction.channel)) return null;
   try {
@@ -725,4 +854,6 @@ export {
   handleAuthPostInfo,
   handleAuthPostManualPublish,
   handleAuthPostWithdraw,
+  handleAuthPostRequestEdit,
+  handleAuthPostCancelHold,
 };
