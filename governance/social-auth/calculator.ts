@@ -11,7 +11,8 @@ import {
   GantryState,
   TimerCalculation,
   TIMER_CONSTANTS,
-  InstantResolution
+  InstantResolution,
+  Sensitivity,
 } from './types';
 
 /**
@@ -217,6 +218,38 @@ export function addVote(
   updatedSubmission = updateSubmissionTimer(updatedSubmission);
 
   return { submission: updatedSubmission, instantResolution: instantResolution || undefined };
+}
+
+/**
+ * Resolve effective sensitivity after AI risk assessment.
+ * AI escalation is binding (requiredApprovals increases, publish behaviour tightens).
+ * AI downgrade is advisory only — humans keep the higher standard the submitter set.
+ */
+export function resolveEffectiveSensitivity(
+  submitterSensitivity: Sensitivity,
+  aiSuggestedSensitivity: Sensitivity,
+  verdict: 'agree' | 'escalate' | 'downgrade'
+): Sensitivity {
+  if (verdict === 'escalate') return aiSuggestedSensitivity;
+  return submitterSensitivity;
+}
+
+/**
+ * Determine publish behaviour based on effective sensitivity and vote history.
+ * Returns the publish mode:
+ *   auto        — publish immediately on approval (low risk, no objections)
+ *   hold        — short hold window (15 min) with manual cancel option
+ *   manual      — human must explicitly trigger publish
+ */
+export function resolvePublishMode(
+  sensitivity: Sensitivity,
+  hadObjections: boolean,
+  wasSupermajority: boolean
+): 'auto' | 'hold' | 'manual' {
+  if (sensitivity === Sensitivity.HIGH) return 'manual';
+  if (sensitivity === Sensitivity.MEDIUM) return wasSupermajority ? 'hold' : 'manual';
+  // LOW sensitivity
+  return hadObjections ? 'hold' : 'auto';
 }
 
 export function formatTimerDuration(minutes: number): string {

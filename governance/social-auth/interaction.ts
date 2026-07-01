@@ -36,6 +36,8 @@ import {
   checkApprovalThresholdMet,
 } from "./calculator";
 import { publishToFedica, parseScheduleFromText } from "./publish";
+import { assessRisk } from "./llm-pipeline";
+import { resolveEffectiveSensitivity, resolvePublishMode } from "./calculator";
 import { errorEmbed } from "@/utils/responses";
 
 const GANTRY_COLORS: Record<GantryState, number> = {
@@ -69,6 +71,10 @@ export default async function handleSocialAuthInteraction(
       return handleAuthPostEditOpen(interaction, client);
     } else if (customId.startsWith("authpost_info_")) {
       return handleAuthPostInfo(interaction, client);
+    } else if (customId.startsWith("authpost_publish_")) {
+      return handleAuthPostManualPublish(interaction, client);
+    } else if (customId.startsWith("authpost_withdraw_")) {
+      return handleAuthPostWithdraw(interaction, client);
     }
   }
 }
@@ -131,8 +137,33 @@ async function handleAuthPostModalSubmit(
       config.initialTimerMinutes
     );
 
-    const embed = createAuthPostEmbed(submission, submission.timerCalculation);
-    const components = createAuthPostButtons(submission.id);
+    // Run AI risk assessment — advisory, non-blocking. Failure is silently swallowed.
+    let riskAnnotation: Awaited<ReturnType<typeof assessRisk>> | null = null;
+    try {
+      riskAnnotation = await assessRisk({ content, destinations, submitterSensitivity: sensitivity });
+    } catch { /* LLM unavailable — proceed without annotation */ }
+
+    // If AI escalates, use the higher sensitivity for requiredApprovals and publish mode.
+    const effectiveSensitivity = riskAnnotation
+      ? resolveEffectiveSensitivity(sensitivity, riskAnnotation.suggestedSensitivity, riskAnnotation.verdict)
+      : sensitivity;
+    const effectiveConfig = SENSITIVITY_CONFIG[effectiveSensitivity];
+
+    // Persist AI assessment fields onto the submission.
+    const submissionWithRisk = {
+      ...submission,
+      ...(riskAnnotation ? {
+        aiRiskVerdict: riskAnnotation.verdict,
+        aiSuggestedSensitivity: riskAnnotation.suggestedSensitivity,
+        aiRiskSummary: riskAnnotation.summary,
+        aiRiskFlags: riskAnnotation.flags,
+        requiredApprovals: effectiveConfig.requiredApprovals,
+      } : {}),
+    };
+    db.updateSubmission(submissionWithRisk);
+
+    const embed = createAuthPostEmbed(submissionWithRisk, submissionWithRisk.timerCalculation, riskAnnotation);
+    const components = createAuthPostButtons(submissionWithRisk.id);
 
     const channel = interaction.guild?.channels.cache.find(c => c.name === "auth-socmed");
     if (!channel || !channel.isTextBased() || !("send" in channel)) {
@@ -142,12 +173,16 @@ async function handleAuthPostModalSubmit(
     }
 
     const message = await channel.send({ embeds: [embed], components });
-    db.updateSubmission({ ...submission, messageId: message.id, channelId: channel.id });
+    db.updateSubmission({ ...submissionWithRisk, messageId: message.id, channelId: channel.id });
+
+    const escalationNote = riskAnnotation?.verdict === 'escalate'
+      ? `\n⚠️ AI escalated sensitivity to **${effectiveSensitivity}** — required approvals: ${effectiveConfig.requiredApprovals}`
+      : '';
 
     return interaction.editReply({
       embeds: [{
         title: "✅ Auth Post Submitted",
-        description: `Your request **${submission.id}** has been posted to <#${channel.id}> for approval.\n\nRequired approvals: ${config.requiredApprovals}${selfApprove ? " (self-approved, 1 more needed)" : ""}`,
+        description: `Your request **${submissionWithRisk.id}** has been posted to <#${channel.id}> for approval.\n\nRequired approvals: ${effectiveConfig.requiredApprovals}${selfApprove ? " (self-approved, 1 more needed)" : ""}${escalationNote}`,
         color: 0x00aa00,
       }],
     });
@@ -271,7 +306,53 @@ async function resolveApproved(
     });
   }
 
+  const hadObjections = submission.objectVotes.length > 0;
+  const wasSupermajority = reason.includes('Supermajority');
+  const publishMode = resolvePublishMode(approved.sensitivity, hadObjections, wasSupermajority);
+
   const message = await getInteractionMessage(interaction, submission.messageId);
+
+  if (publishMode === 'manual') {
+    // Human must click "Publish" — update embed with a manual-publish button
+    const holdEmbed = new EmbedBuilder()
+      .setTitle(`✅ ${approved.id} Approved — Awaiting Manual Publish`)
+      .setDescription(
+        `Approved (${reason}).\nSensitivity **${approved.sensitivity}** requires manual publish.\n` +
+        `Destinations: ${approved.destinations.join(', ')}`
+      )
+      .setColor(0x5c9de0);
+    const publishButton = new ActionRowBuilder<ButtonBuilder>().addComponents(
+      new ButtonBuilder().setCustomId(`authpost_publish_${approved.id}`).setLabel('📤 Publish to Fedica').setStyle(ButtonStyle.Primary),
+      new ButtonBuilder().setCustomId(`authpost_withdraw_${approved.id}`).setLabel('🚫 Withdraw').setStyle(ButtonStyle.Danger),
+    );
+    if (message) await message.edit({ embeds: [holdEmbed], components: [publishButton] });
+    return interaction.editReply({
+      embeds: [{ title: '✅ Approved', description: `**${approved.id}** approved. Manual publish required — click "Publish to Fedica" on the post.`, color: 0x5c9de0 }],
+    });
+  }
+
+  if (publishMode === 'hold') {
+    // 15-minute hold window — auto-publishes via timer service unless withdrawn
+    const holdMinutes = 15;
+    const autoPublishAt = new Date(Date.now() + holdMinutes * 60000);
+    const holdEmbed = new EmbedBuilder()
+      .setTitle(`✅ ${approved.id} Approved — Publishing in ${holdMinutes}m`)
+      .setDescription(
+        `Approved (${reason}). Auto-publishes <t:${Math.floor(autoPublishAt.getTime() / 1000)}:R>.\n` +
+        `Destinations: ${approved.destinations.join(', ')}`
+      )
+      .setColor(0xffa500);
+    const cancelButton = new ActionRowBuilder<ButtonBuilder>().addComponents(
+      new ButtonBuilder().setCustomId(`authpost_withdraw_${approved.id}`).setLabel('🚫 Cancel').setStyle(ButtonStyle.Danger),
+    );
+    if (message) await message.edit({ embeds: [holdEmbed], components: [cancelButton] });
+    db.updateSubmission({ ...approved, scheduledAt: autoPublishAt });
+    return interaction.editReply({
+      embeds: [{ title: '✅ Approved', description: `**${approved.id}** approved. Auto-publishes in ${holdMinutes} minutes unless cancelled.`, color: 0xffa500 }],
+    });
+  }
+
+  // auto — publish immediately
   const pendingEmbed = new EmbedBuilder()
     .setTitle(`✅ ${approved.id} Approved — Scheduling on Fedica`)
     .setDescription(`Approved (${reason}). Destinations: ${approved.destinations.join(", ")}`)
@@ -474,7 +555,11 @@ async function handleAuthPostInfo(interaction: ButtonInteraction, _client: BotCl
   }
 }
 
-function createAuthPostEmbed(submission: SocialAuthSubmission, timerCalc: TimerCalculation): EmbedBuilder {
+function createAuthPostEmbed(
+  submission: SocialAuthSubmission,
+  timerCalc: TimerCalculation,
+  riskAnnotation?: Awaited<ReturnType<typeof assessRisk>> | null
+): EmbedBuilder {
   const approveCount = submission.approveVotes.length;
   const objectCount = submission.objectVotes.length;
 
@@ -510,6 +595,36 @@ function createAuthPostEmbed(submission: SocialAuthSubmission, timerCalc: TimerC
     embed.addFields({ name: "Edits", value: `${submission.edits.length} revision(s) so far`, inline: true });
   }
 
+  // AI risk annotation — shown when assessment is available
+  const risk = riskAnnotation ?? (submission.aiRiskSummary ? {
+    verdict: submission.aiRiskVerdict,
+    suggestedSensitivity: submission.aiSuggestedSensitivity,
+    summary: submission.aiRiskSummary,
+    flags: submission.aiRiskFlags ?? [],
+  } : null);
+
+  if (risk?.summary) {
+    const verdictEmoji = risk.verdict === 'escalate' ? '⚠️' : risk.verdict === 'downgrade' ? '🔽' : '✅';
+    const sensitivityNote = risk.suggestedSensitivity && risk.suggestedSensitivity !== submission.sensitivity
+      ? ` (suggests **${risk.suggestedSensitivity}**)`
+      : '';
+    embed.addFields({
+      name: `${verdictEmoji} AI Risk Assessment${sensitivityNote}`,
+      value: risk.summary.substring(0, 500),
+      inline: false,
+    });
+    const criticalFlags = (risk.flags ?? []).filter((f: { severity: string }) => f.severity === 'critical');
+    if (criticalFlags.length) {
+      embed.addFields({
+        name: '🚨 Critical Flags',
+        value: criticalFlags.map((f: { reason: string; policyReference?: string }) =>
+          `• ${f.reason}${f.policyReference ? ` *(${f.policyReference})*` : ''}`
+        ).join('\n').substring(0, 500),
+        inline: false,
+      });
+    }
+  }
+
   return embed;
 }
 
@@ -522,6 +637,74 @@ function createAuthPostButtons(postId: string): ActionRowBuilder<ButtonBuilder>[
       new ButtonBuilder().setCustomId(`authpost_info_${postId}`).setLabel("📋 Details").setStyle(ButtonStyle.Primary)
     ),
   ];
+}
+
+async function handleAuthPostManualPublish(interaction: ButtonInteraction, _client: BotClient) {
+  try {
+    await interaction.deferReply({ ephemeral: true });
+    const db = new SocialAuthDatabaseManager();
+    const postId = interaction.customId.split("_")[2];
+    const submission = db.getSubmission(postId);
+    if (!submission) return interaction.editReply({ embeds: [errorEmbed("Not Found", "Auth post not found")] });
+    if (submission.status !== AuthPostStatus.APPROVED) {
+      return interaction.editReply({ embeds: [errorEmbed("Invalid State", `Post is ${submission.status}, not approved`)] });
+    }
+
+    const message = await getInteractionMessage(interaction, submission.messageId);
+    const pendingEmbed = new EmbedBuilder()
+      .setTitle(`📤 ${submission.id} — Publishing to Fedica`)
+      .setDescription(`Manual publish triggered by <@${interaction.user.id}>`)
+      .setColor(0x00aa00);
+    if (message) await message.edit({ embeds: [pendingEmbed], components: [] });
+
+    const result = await publishToFedica(submission);
+    const finalSubmission: SocialAuthSubmission = result.success
+      ? { ...submission, status: AuthPostStatus.PUBLISHED, publishedAt: new Date(), fedicaPostId: result.fedicaPostId, fedicaScheduledAt: result.fedicaScheduledAt }
+      : { ...submission, status: AuthPostStatus.PUBLISH_FAILED, fedicaError: result.error };
+    db.updateSubmission(finalSubmission);
+
+    const schedStr = result.fedicaScheduledAt ? `\nScheduled: **${result.fedicaScheduledAt.toISOString()}**` : '';
+    const finalEmbed = new EmbedBuilder()
+      .setTitle(result.success ? `📅 ${submission.id} Scheduled` : `❌ ${submission.id} Publish Failed`)
+      .setDescription(result.success ? `Destinations: ${submission.destinations.join(', ')}${schedStr}\nFedica ID: ${result.fedicaPostId}` : `Error: ${result.error}`)
+      .setColor(result.success ? 0x00aa00 : 0xff4444);
+    if (message) await message.edit({ embeds: [finalEmbed], components: [] });
+
+    return interaction.editReply({
+      embeds: [{ title: result.success ? '✅ Published' : '⚠️ Publish Failed', description: result.success ? `**${submission.id}** scheduled on Fedica.${schedStr}` : result.error, color: result.success ? 0x00aa00 : 0xff4444 }],
+    });
+  } catch (error) {
+    return interaction.editReply({ embeds: [errorEmbed("Publish Error", String(error))] });
+  }
+}
+
+async function handleAuthPostWithdraw(interaction: ButtonInteraction, _client: BotClient) {
+  try {
+    await interaction.deferReply({ ephemeral: true });
+    const db = new SocialAuthDatabaseManager();
+    const postId = interaction.customId.split("_")[2];
+    const submission = db.getSubmission(postId);
+    if (!submission) return interaction.editReply({ embeds: [errorEmbed("Not Found", "Auth post not found")] });
+
+    const canWithdraw = interaction.user.id === submission.submitterId ||
+      interaction.memberPermissions?.has('ManageMessages');
+    if (!canWithdraw) {
+      return interaction.editReply({ embeds: [errorEmbed("Unauthorized", "Only the submitter or a moderator can withdraw this post")] });
+    }
+
+    db.updateSubmission({ ...submission, status: AuthPostStatus.WITHDRAWN, resolvedAt: new Date(), outcome: 'withdrawn', outcomeReason: `Withdrawn by ${interaction.user.username}` });
+
+    const message = await getInteractionMessage(interaction, submission.messageId);
+    const withdrawnEmbed = new EmbedBuilder()
+      .setTitle(`🚫 ${submission.id} Withdrawn`)
+      .setDescription(`Withdrawn by <@${interaction.user.id}>`)
+      .setColor(0x888888);
+    if (message) await message.edit({ embeds: [withdrawnEmbed], components: [] });
+
+    return interaction.editReply({ embeds: [{ title: '🚫 Withdrawn', description: `**${submission.id}** has been withdrawn.`, color: 0x888888 }] });
+  } catch (error) {
+    return interaction.editReply({ embeds: [errorEmbed("Withdraw Error", String(error))] });
+  }
 }
 
 async function getInteractionMessage(interaction: ButtonInteraction, messageId: string) {
@@ -540,4 +723,6 @@ export {
   handleAuthPostEditOpen,
   handleAuthPostEditSubmit,
   handleAuthPostInfo,
+  handleAuthPostManualPublish,
+  handleAuthPostWithdraw,
 };
