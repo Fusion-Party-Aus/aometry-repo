@@ -35,7 +35,7 @@ import {
   checkSupermajorityBypass,
   checkApprovalThresholdMet,
 } from "./calculator";
-import { publishToFedica, parseScheduleFromText } from "./publish";
+import { publishToFedica, parseScheduleFromText, validatePostForDestinations } from "./publish";
 import { assessRisk } from "./llm-pipeline";
 import { resolveEffectiveSensitivity, resolvePublishMode } from "./calculator";
 import { refreshQueueMessage } from "./queue";
@@ -131,6 +131,15 @@ async function handleAuthPostModalSubmit(
 
     const content: PostContent = { commentary, articleLink, policyLinks, hashtags };
 
+    // Validate before creating anything in the DB.
+    const validationErrors = validatePostForDestinations(content, destinations);
+    const hardErrors = validationErrors.filter(e => e.includes('limit'));
+    if (hardErrors.length > 0) {
+      return interaction.editReply({
+        embeds: [errorEmbed('Validation Error', hardErrors.join('\n'))],
+      });
+    }
+
     const approverPoolMemberIds = interaction.guild
       ? interaction.guild.members.cache
           .filter(member => !member.user.bot && member.roles.cache.some(r => r.name === "authnational"))
@@ -198,10 +207,16 @@ async function handleAuthPostModalSubmit(
       ? `\n⚠️ AI escalated sensitivity to **${effectiveSensitivity}** — required approvals: ${effectiveConfig.requiredApprovals}`
       : '';
 
+    // Image warnings are advisory (not hard errors) — surface them in the confirmation.
+    const imageWarnings = validationErrors.filter(e => !e.includes('limit'));
+    const imageNote = imageWarnings.length > 0
+      ? `\n\n⚠️ **Image required:** ${imageWarnings.join(' ')}`
+      : '';
+
     return interaction.editReply({
       embeds: [{
         title: "✅ Auth Post Submitted",
-        description: `Your request **${submissionWithRisk.id}** has been posted to <#${channel.id}> for approval.\n\nRequired approvals: ${effectiveConfig.requiredApprovals}${selfApprove ? " (self-approved, 1 more needed)" : ""}${escalationNote}`,
+        description: `Your request **${submissionWithRisk.id}** has been posted to <#${channel.id}> for approval.\n\nRequired approvals: ${effectiveConfig.requiredApprovals}${selfApprove ? " (self-approved, 1 more needed)" : ""}${escalationNote}${imageNote}`,
         color: 0x00aa00,
       }],
     });

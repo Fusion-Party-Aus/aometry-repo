@@ -14,7 +14,7 @@
  * TODO(fedica-integration): confirm real endpoint + request shape once credentials/docs arrive.
  */
 
-import { SocialAuthSubmission, FedicaPublishPayload, FedicaPublishResult, Destination } from './types';
+import { SocialAuthSubmission, FedicaPublishPayload, FedicaPublishResult, Destination, PostContent } from './types';
 
 const FEDICA_API_URL = process.env.FEDICA_API_URL ?? 'https://api.fedica.com/api';
 const FEDICA_API_KEY = process.env.FEDICA_API_KEY ?? '';
@@ -71,14 +71,44 @@ export function parseScheduleFromText(text: string): Date | null {
   return d > new Date() ? d : null; // Discard past dates.
 }
 
-export function buildFedicaPayload(submission: SocialAuthSubmission): FedicaPublishPayload {
-  const { content, destinations } = submission;
+const TWITTER_CHAR_LIMIT = 280;
+const IMAGE_DESTINATIONS: Destination[] = ['Facebook', 'Instagram'];
 
+/**
+ * Compose the final post text from content fields (same order Fedica receives it).
+ */
+export function composePostText(content: PostContent): string {
   let text = content.commentary;
   if (content.articleLink) text += `\n${content.articleLink}`;
   content.policyLinks.forEach(url => { text += `\nSee our policy here: ${url}`; });
   if (content.hashtags.length) text += `\n${content.hashtags.map(t => `#${t}`).join(' ')}`;
+  return text;
+}
 
+/**
+ * Validate post content against destination-specific constraints.
+ * Returns an array of human-readable error/warning strings (empty = valid).
+ */
+export function validatePostForDestinations(content: PostContent, destinations: Destination[]): string[] {
+  const errors: string[] = [];
+  const text = composePostText(content);
+
+  if (destinations.includes('Twitter/X') && text.length > TWITTER_CHAR_LIMIT) {
+    errors.push(`Twitter/X limit is ${TWITTER_CHAR_LIMIT} characters — composed post is ${text.length} chars. Shorten the commentary or hashtags.`);
+  }
+
+  if (destinations.some(d => IMAGE_DESTINATIONS.includes(d))) {
+    const imageTargets = destinations.filter(d => IMAGE_DESTINATIONS.includes(d)).join(' and ');
+    errors.push(`${imageTargets} selected — you will need to attach an image manually in Fedica before publishing.`);
+  }
+
+  return errors;
+}
+
+export function buildFedicaPayload(submission: SocialAuthSubmission): FedicaPublishPayload {
+  const { content, destinations } = submission;
+
+  const text = composePostText(content);
   const imageRequired = destinations.includes('Facebook') || destinations.includes('Instagram');
   const scheduledAt = submission.scheduledAt ?? nextWeekdayAt9amAest();
 

@@ -1,5 +1,5 @@
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
-import { parseScheduleFromText, nextWeekdayAt9amAest, buildFedicaPayload } from './publish';
+import { parseScheduleFromText, nextWeekdayAt9amAest, buildFedicaPayload, composePostText, validatePostForDestinations } from './publish';
 import { SocialAuthSubmission, AuthPostStatus, GantryState, VoteType, Sensitivity } from './types';
 
 const FIXED_NOW = new Date('2026-07-01T12:00:00Z'); // Wednesday 2026-07-01 12:00 UTC = 22:00 AEST
@@ -193,5 +193,84 @@ describe('buildFedicaPayload', () => {
     const payload = buildFedicaPayload(makeSubmission());
     // FIXED_NOW = Wed 2026-07-01 12:00 UTC → next weekday 9am AEST = Thu 2026-07-01T23:00Z
     expect(payload.scheduledAt.toISOString()).toBe('2026-07-01T23:00:00.000Z');
+  });
+});
+
+describe('composePostText', () => {
+  it('commentary only', () => {
+    const text = composePostText({ commentary: 'Hello world', articleLink: null, policyLinks: [], hashtags: [] });
+    expect(text).toBe('Hello world');
+  });
+
+  it('appends article link on new line', () => {
+    const text = composePostText({ commentary: 'Hi', articleLink: 'https://example.com', policyLinks: [], hashtags: [] });
+    expect(text).toBe('Hi\nhttps://example.com');
+  });
+
+  it('appends each policy link on new line', () => {
+    const text = composePostText({ commentary: 'Hi', articleLink: null, policyLinks: ['https://a.com', 'https://b.com'], hashtags: [] });
+    expect(text).toContain('https://a.com');
+    expect(text).toContain('https://b.com');
+  });
+
+  it('appends hashtags prefixed with #', () => {
+    const text = composePostText({ commentary: 'Hi', articleLink: null, policyLinks: [], hashtags: ['auspol', 'fusionparty'] });
+    expect(text).toContain('#auspol');
+    expect(text).toContain('#fusionparty');
+  });
+
+  it('full composition matches buildFedicaPayload text', () => {
+    const content = { commentary: 'Test post', articleLink: 'https://example.com', policyLinks: ['https://policy.com'], hashtags: ['auspol'] };
+    const composed = composePostText(content);
+    expect(composed).toBe('Test post\nhttps://example.com\nSee our policy here: https://policy.com\n#auspol');
+  });
+});
+
+describe('validatePostForDestinations', () => {
+  const shortContent = { commentary: 'Short post', articleLink: null, policyLinks: [], hashtags: ['auspol'] };
+  const longCommentary = 'A'.repeat(281);
+  const longContent = { commentary: longCommentary, articleLink: null, policyLinks: [], hashtags: [] };
+
+  it('returns empty array for valid short post to Twitter/X', () => {
+    const errors = validatePostForDestinations(shortContent, ['Twitter/X']);
+    expect(errors).toHaveLength(0);
+  });
+
+  it('returns a char-limit error when composed text exceeds 280 chars for Twitter/X', () => {
+    const errors = validatePostForDestinations(longContent, ['Twitter/X']);
+    expect(errors.some(e => e.includes('280'))).toBe(true);
+  });
+
+  it('does not flag char limit for non-Twitter destinations', () => {
+    const errors = validatePostForDestinations(longContent, ['Facebook']);
+    expect(errors.every(e => !e.includes('280'))).toBe(true);
+  });
+
+  it('returns image warning when Facebook is a destination', () => {
+    const errors = validatePostForDestinations(shortContent, ['Facebook']);
+    expect(errors.some(e => e.toLowerCase().includes('image'))).toBe(true);
+  });
+
+  it('returns image warning when Instagram is a destination', () => {
+    const errors = validatePostForDestinations(shortContent, ['Instagram']);
+    expect(errors.some(e => e.toLowerCase().includes('image'))).toBe(true);
+  });
+
+  it('no image warning for Twitter/X only', () => {
+    const errors = validatePostForDestinations(shortContent, ['Twitter/X']);
+    expect(errors.every(e => !e.toLowerCase().includes('image'))).toBe(true);
+  });
+
+  it('flags both char limit and image warning together', () => {
+    const errors = validatePostForDestinations(longContent, ['Twitter/X', 'Facebook']);
+    expect(errors.some(e => e.includes('280'))).toBe(true);
+    expect(errors.some(e => e.toLowerCase().includes('image'))).toBe(true);
+  });
+
+  it('char limit error includes actual character count', () => {
+    const errors = validatePostForDestinations(longContent, ['Twitter/X']);
+    const charError = errors.find(e => e.includes('280'))!;
+    const composed = composePostText(longContent);
+    expect(charError).toContain(String(composed.length));
   });
 });
