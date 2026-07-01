@@ -69,13 +69,8 @@ export function calculateDynamicTimer(
     const objectionGantryDuration = initialTimerMinutes * TIMER_CONSTANTS.NATURAL_GANTRY_THRESHOLD;
     gantryExpiresAt = new Date(Date.now() + objectionGantryDuration * 60 * 1000);
   }
-  
-  // Check for natural gantry (approaching expiration) per Rule 49(5)(a)(i)
-  else if (clampedTimerMinutes <= initialTimerMinutes * TIMER_CONSTANTS.NATURAL_GANTRY_THRESHOLD) {
-    gantryState = GantryState.NATURAL_APPROVAL;
-    // Natural gantry duration = remaining time (typically 0.25 × T)
-    gantryExpiresAt = new Date(Date.now() + clampedTimerMinutes * 60 * 1000);
-  }
+  // NATURAL_APPROVAL gantry is wall-clock-based: fires in the timer service when
+  // remaining time drops to ≤25% of T, not from vote-driven timer adjustment.
   
   return {
     initialTimerMinutes,

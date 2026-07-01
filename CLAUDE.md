@@ -30,14 +30,17 @@ Key files:
 - `types.ts` — all types + `TIMER_CONSTANTS`
 
 ### `governance/social-auth/`
-Social media post authorisation workflow for `#auth-socmed`: submit → comment → approve → edit → publish (Fedica).
+Social media post authorisation workflow for `#auth-socmed`: submit → approve → schedule on Fedica.
 
-Mirrors ncap's timer/gantry model but parameterised by sensitivity tier (LOW/MEDIUM/HIGH) rather than NCAP category. Key difference from ncap: submitter may self-approve on LOW sensitivity (`selfApprove: true`).
+Mirrors ncap's timer/gantry model but parameterised by sensitivity tier (LOW/MEDIUM/HIGH). Key difference from ncap: submitter may self-approve on LOW sensitivity (`selfApprove: true`).
 
 Key files:
-- `calculator.ts` — same dynamic timer model as ncap; adds `checkApprovalThresholdMet` (sensitivity tier gates publish, not just gantry)
-- `publish.ts` — **STUB**: `publishToFedica` logs payload instead of calling Fedica API. Wire it up once credentials and API shape are confirmed; the call site (`interaction.ts`) and `FedicaPublishResult` contract are already in place.
-- `types.ts` — includes `SENSITIVITY_CONFIG` mapping tier → `requiredApprovals`, `allowSelfApprove`, `initialTimerMinutes`
+- `calculator.ts` — same dynamic timer model as ncap; adds `checkApprovalThresholdMet`; `updateSubmissionTimer` detects wall-clock-based NATURAL_APPROVAL gantry (≤25% remaining)
+- `publish.ts` — Fedica draft-to-schedule integration. Set `FEDICA_API_KEY` env var to enable live calls; without it, stub mode logs the payload. Supports `scheduledAt` (defaults to next weekday 09:00 AEST). Includes `parseScheduleFromText` to parse `schedule: YYYY-MM-DDTHH:MM` from submission notes.
+- `database.ts` — `atomicVoteAndUpdate` and `atomicResolve` prevent race conditions from concurrent vote interactions; `hasNotifiedThreshold`/`setNotifiedThreshold` persist reminder state across restarts
+- `timer.ts` — gantry-transition notifications (NATURAL_APPROVAL, VOTED_APPROVAL, OBJECTION); reminders deduped via DB
+- `llm-pipeline.ts` — **STUB**: three-stage AI content pipeline (topic research → policy RAG retrieval → commentary generation). Wire up with `LLM_API_KEY`, `LLM_MODEL`, and `POLICY_INDEX_URL` once available.
+- `types.ts` — includes `SENSITIVITY_CONFIG`, `FedicaPublishPayload.scheduledAt`, `SocialAuthSubmission.scheduledAt/fedicaScheduledAt`
 
 ### `governance/ChannelUtils.ts`
 Shared utility mapping Discord channel names to `ChannelCategory` enum values.
@@ -55,4 +58,6 @@ Tests live alongside source as `*.test.ts`. Currently cover both calculator modu
 
 ## Pending
 
-- **Fedica integration**: swap `publishToFedica` stub in `governance/social-auth/publish.ts` once API credentials are available.
+- **Fedica live calls**: set `FEDICA_API_KEY` (and optionally `FEDICA_API_URL`) on the host bot. Stub mode is active until then.
+- **LLM content pipeline**: wire up `governance/social-auth/llm-pipeline.ts` with `LLM_API_KEY`, `LLM_MODEL` (Anthropic), and `POLICY_INDEX_URL` (vector store for policy RAG). Currently all three stages are stubs.
+- **AEDT support**: `nextWeekdayAt9amAest()` uses a fixed UTC+10 offset; it will be 1 hour off during Australian summer (AEDT = UTC+11). Use a timezone library or the `Australia/Sydney` locale once available.

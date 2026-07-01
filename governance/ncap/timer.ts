@@ -8,7 +8,7 @@ import { BotClient } from "@/types/discord";
 import { EmbedBuilder, Message } from "discord.js";
 import { NcapDatabaseManager } from "./database";
 import { calculateDynamicTimer } from "./calculator";
-import { GantryState, NcapStatus, NcapSubmission } from "./types";
+import { GantryState, NcapStatus, NcapSubmission, TIMER_CONSTANTS } from "./types";
 
 // Configuration
 const CHECK_INTERVAL_MS = 60 * 1000; // Check every minute (60 seconds)
@@ -87,6 +87,16 @@ async function checkTimers(client: BotClient) {
         submission.objectVotes,
         submission.approverPool.memberIds.length
       );
+
+      // Wall-clock NATURAL_APPROVAL: fires when remaining time ≤ 25% of initial timer
+      // and no vote-driven gantry is active.
+      const expiresAt = submission.expiresAt?.getTime() ?? Date.now();
+      const remainingMs = expiresAt - Date.now();
+      const naturalGantryMs = submission.initialTimerMinutes * 60000 * TIMER_CONSTANTS.NATURAL_GANTRY_THRESHOLD;
+      if (timerCalc.gantryState === GantryState.NONE && remainingMs > 0 && remainingMs <= naturalGantryMs) {
+        timerCalc.gantryState = GantryState.NATURAL_APPROVAL;
+        timerCalc.gantryExpiresAt = new Date(expiresAt);
+      }
 
       const oldGantryState = submission.timerCalculation.gantryState;
       if (timerCalc.gantryState !== oldGantryState) {

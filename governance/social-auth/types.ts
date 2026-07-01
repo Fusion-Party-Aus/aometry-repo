@@ -164,6 +164,8 @@ export interface SocialAuthSubmission {
 
   fedicaPostId?: string;
   fedicaError?: string;
+  scheduledAt?: Date;         // Intended Fedica post time (defaults to next weekday 9am AEST)
+  fedicaScheduledAt?: Date;   // Confirmed schedule time returned by Fedica API
 
   // Discord integration
   channelId: string;
@@ -182,6 +184,7 @@ export interface SocialAuthSubmissionRequest {
   sensitivity: Sensitivity;
   notes?: string;
   selfApprove: boolean;
+  scheduledAt?: Date;    // Parsed from notes; falls back to next weekday 9am AEST at publish time
   approverPool: ApproverPool;
   channelId: string;
 }
@@ -232,14 +235,19 @@ export const TIMER_CONSTANTS = {
 };
 
 /**
+ * Data needed to create a new social auth submission (schedule time optional; defaults to next weekday 9am AEST)
+ */
+
+/**
  * Fedica publish payload - what gets handed to the Fedica integration
  */
 export interface FedicaPublishPayload {
   postId: string;
   destinations: Destination[];
-  text: string;          // Final composed post text (commentary + links + hashtags)
+  text: string;            // Final composed post text (commentary + links + hashtags)
   articleLink: string | null;
-  imageRequired: boolean; // True if Facebook/Instagram are included (manual screenshot attach)
+  imageRequired: boolean;  // True if Facebook/Instagram are included (manual screenshot attach)
+  scheduledAt: Date;       // When to publish on Fedica (never undefined - always resolved before API call)
 }
 
 /**
@@ -248,5 +256,6 @@ export interface FedicaPublishPayload {
 export interface FedicaPublishResult {
   success: boolean;
   fedicaPostId?: string;
+  fedicaScheduledAt?: Date; // Confirmed schedule time from Fedica response
   error?: string;
 }
