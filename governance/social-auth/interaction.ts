@@ -306,6 +306,16 @@ async function castVote(interaction: ButtonInteraction, voteType: VoteType) {
       return resolveApproved(interaction, db, updatedSubmission, supermajority ? "Supermajority bypass" : "Required approvals met");
     }
 
+    // Gantry instant resolutions (approval_gantry_approve, objection_gantry_object).
+    // supermajority_bypass is already handled above via checkSupermajorityBypass.
+    const { instantResolution } = voteResult;
+    if (instantResolution?.type === 'approval_gantry_approve') {
+      return resolveApproved(interaction, db, updatedSubmission, 'Approval gantry instant resolution');
+    }
+    if (instantResolution?.type === 'objection_gantry_object') {
+      return resolveBlocked(interaction, db, updatedSubmission, 'Objection gantry instant resolution');
+    }
+
     const timerCalc = calculateDynamicTimer(
       updatedSubmission.initialTimerMinutes,
       updatedSubmission.approveVotes,
@@ -465,6 +475,45 @@ async function resolveApproved(
         : `**${approved.id}** was approved but the Fedica schedule failed: ${result.error}`,
       color: result.success ? 0x00aa00 : 0xff9900,
     }],
+  });
+}
+
+async function resolveBlocked(
+  interaction: ButtonInteraction,
+  db: SocialAuthDatabaseManager,
+  submission: SocialAuthSubmission,
+  reason: string
+) {
+  const blocked: SocialAuthSubmission = {
+    ...submission,
+    status: AuthPostStatus.BLOCKED,
+    resolvedAt: new Date(),
+    outcome: 'blocked',
+    outcomeReason: reason,
+  };
+
+  const claimed = db.atomicResolve(blocked, {
+    postId: blocked.id,
+    eventType: 'expiration',
+    timestamp: new Date(),
+    details: { reason },
+  });
+
+  if (!claimed) {
+    return interaction.editReply({
+      embeds: [errorEmbed('Already Resolved', `${submission.id} was already resolved by a concurrent interaction.`)],
+    });
+  }
+
+  const message = await getInteractionMessage(interaction, submission.messageId);
+  const blockedEmbed = new EmbedBuilder()
+    .setTitle(`🔴 ${submission.id} Blocked`)
+    .setDescription(`Blocked: ${reason}.\nDestinations: ${submission.destinations.join(', ')}`)
+    .setColor(0xff4444);
+  if (message) await message.edit({ embeds: [blockedEmbed], components: [] });
+
+  return interaction.editReply({
+    embeds: [{ title: '🔴 Post Blocked', description: `**${submission.id}** was blocked by the objection gantry.`, color: 0xff4444 }],
   });
 }
 
