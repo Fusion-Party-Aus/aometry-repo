@@ -30,16 +30,37 @@ export function buildFedicaPayload(submission: SocialAuthSubmission): FedicaPubl
 
 /**
  * Publish an approved submission to Fedica.
- * Currently a stub - logs the payload and returns success without calling any API.
+ *
+ * Set FEDICA_API_KEY (and optionally FEDICA_API_URL) to enable real publishing.
+ * Without them the payload is written to fedica-test-output.json for local inspection.
+ *
+ * TODO(fedica-integration): confirm real endpoint + request shape once credentials/docs arrive.
  */
 export async function publishToFedica(submission: SocialAuthSubmission): Promise<FedicaPublishResult> {
   const payload = buildFedicaPayload(submission);
+  const apiKey = process.env.FEDICA_API_KEY;
 
-  // TODO(fedica-integration): replace with a real Fedica API call once credentials exist.
-  console.log(`[Fedica Stub] Would publish ${payload.postId} to [${payload.destinations.join(', ')}]:\n${payload.text}`);
+  if (apiKey) {
+    const baseUrl = process.env.FEDICA_API_URL ?? 'https://api.fedica.com';
+    // TODO(fedica-integration): replace with real endpoint + request shape once confirmed.
+    const res = await fetch(`${baseUrl}/posts`, {
+      method: 'POST',
+      headers: { 'Authorization': `Bearer ${apiKey}`, 'Content-Type': 'application/json' },
+      body: JSON.stringify(payload),
+    });
+    if (!res.ok) {
+      const body = await res.text().catch(() => '(no body)');
+      return { success: false, error: `Fedica ${res.status}: ${body}` };
+    }
+    const data = await res.json() as { id?: string };
+    return { success: true, fedicaPostId: data.id };
+  }
 
-  return {
-    success: true,
-    fedicaPostId: `stub-${payload.postId}`
-  };
+  // Stub path: dump payload to file so local test runs can inspect what would be sent.
+  const fs = await import('fs/promises');
+  const outPath = 'fedica-test-output.json';
+  await fs.writeFile(outPath, JSON.stringify(payload, null, 2), 'utf-8');
+  console.log(`[Fedica Stub] No FEDICA_API_KEY — payload written to ${outPath}`);
+
+  return { success: true, fedicaPostId: `stub-${payload.postId}` };
 }
