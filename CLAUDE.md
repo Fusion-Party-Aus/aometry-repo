@@ -68,6 +68,14 @@ Tests live alongside source as `*.test.ts`. Currently cover both calculator modu
 
 Do not write implementation code first and tests after. If a piece of behaviour cannot be unit-tested (e.g. a Discord interaction handler), note that explicitly and cover the testable logic it delegates to instead.
 
+**Test the sad path, not just the happy path.** Assume the software will fail and write tests that force it to. For every feature, explicitly cover:
+- **Invalid inputs** — malformed data, wrong types, empty/null/zero values
+- **Boundary conditions** — off-by-one, exactly at a threshold vs. one below/above
+- **Failure modes** — API errors, DB constraint violations, concurrent access, expired state
+- **Rejection cases** — unauthorised users, duplicate votes, self-approve when disabled, past dates
+
+A test suite that only passes sunny-day scenarios gives false confidence. If a test cannot be made to fail by breaking the thing it tests, it is not a useful test.
+
 ## Pending
 
 - **Fedica live calls**: set `FEDICA_API_KEY` (and optionally `FEDICA_API_URL`) on the host bot. Stub mode is active until then.
