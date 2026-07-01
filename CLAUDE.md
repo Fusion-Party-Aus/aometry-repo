@@ -58,6 +58,16 @@ CI runs both on every push and pull request (`.github/workflows/typecheck.yml`).
 
 Tests live alongside source as `*.test.ts`. Currently cover both calculator modules (timer math, gantry logic, vote rules). Discord interaction handlers and the timer service are not unit-tested — they depend on Discord.js and the background scheduler.
 
+### Test-Driven Development
+
+**All new features must follow red-green TDD:**
+
+1. **Red** — write a failing test that specifies the desired behaviour before writing any implementation code. Run `npm test` and confirm the new test fails.
+2. **Green** — write the minimum implementation needed to make the test pass. Run `npm test` and confirm it passes.
+3. **Refactor** — clean up the implementation without breaking the tests.
+
+Do not write implementation code first and tests after. If a piece of behaviour cannot be unit-tested (e.g. a Discord interaction handler), note that explicitly and cover the testable logic it delegates to instead.
+
 ## Pending
 
 - **Fedica live calls**: set `FEDICA_API_KEY` (and optionally `FEDICA_API_URL`) on the host bot. Stub mode is active until then.
