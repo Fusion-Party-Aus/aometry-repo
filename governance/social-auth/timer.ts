@@ -40,6 +40,30 @@ async function checkPendingSubmissions(client: BotClient) {
   const active = db.getActiveSubmissions();
 
   for (const submission of active) {
+    if (submission.status === AuthPostStatus.IN_EDIT) {
+      // Timer runs while in edit — expire stale submissions that were never resubmitted.
+      if (getTimeRemaining(submission) <= 0) {
+        const blocked = {
+          ...submission,
+          status: AuthPostStatus.BLOCKED,
+          resolvedAt: new Date(),
+          outcome: 'blocked' as const,
+          outcomeReason: 'Timer expired while awaiting resubmission',
+        };
+        db.atomicResolve(blocked, {
+          postId: submission.id,
+          eventType: 'expiration',
+          timestamp: new Date(),
+          details: { reason: 'in_edit_timeout' },
+        });
+        await notifyChannel(
+          client, submission.channelId, submission.messageId,
+          `⏱️ **${submission.id}** expired while awaiting resubmission and has been blocked. Re-submit if still needed.`
+        );
+      }
+      continue;
+    }
+
     if (submission.status !== AuthPostStatus.PENDING) continue;
 
     const prevGantry = submission.timerCalculation.gantryState;
