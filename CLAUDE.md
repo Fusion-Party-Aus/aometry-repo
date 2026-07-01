@@ -32,17 +32,20 @@ Key files:
 - `types.ts` — all types + `TIMER_CONSTANTS`
 
 ### `governance/social-auth/`
-Social media post authorisation workflow for `#auth-socmed`: submit → approve → schedule on Fedica.
+Social media post authorisation workflow for `#auth-socmed`: submit → vote → approve → publish to Fedica.
 
-Mirrors ncap's timer/gantry model but parameterised by sensitivity tier (LOW/MEDIUM/HIGH). Key difference from ncap: submitter may self-approve on LOW sensitivity (`selfApprove: true`).
+Mirrors ncap's timer/gantry model but parameterised by sensitivity tier (LOW/MEDIUM/HIGH). Submitter may self-approve on LOW sensitivity (`selfApprove: true`). Publish mode (auto/hold/manual) is determined by sensitivity + objection history + supermajority.
 
 Key files:
-- `calculator.ts` — same dynamic timer model as ncap; adds `checkApprovalThresholdMet`; `updateSubmissionTimer` detects wall-clock-based NATURAL_APPROVAL gantry (≤25% remaining)
-- `publish.ts` — Fedica draft-to-schedule integration. Set `FEDICA_API_KEY` env var to enable live calls; without it, stub mode logs the payload. Supports `scheduledAt` (defaults to next weekday 09:00 AEST). Includes `parseScheduleFromText` to parse `schedule: YYYY-MM-DDTHH:MM` from submission notes.
-- `database.ts` — `atomicVoteAndUpdate` and `atomicResolve` prevent race conditions from concurrent vote interactions; `hasNotifiedThreshold`/`setNotifiedThreshold` persist reminder state across restarts
-- `timer.ts` — gantry-transition notifications (NATURAL_APPROVAL, VOTED_APPROVAL, OBJECTION); reminders deduped via DB
-- `llm-pipeline.ts` — **STUB**: three-stage AI content pipeline (topic research → policy RAG retrieval → commentary generation). Wire up with `LLM_API_KEY`, `LLM_MODEL`, and `POLICY_INDEX_URL` once available.
-- `types.ts` — includes `SENSITIVITY_CONFIG`, `FedicaPublishPayload.scheduledAt`, `SocialAuthSubmission.scheduledAt/fedicaScheduledAt`
+- `calculator.ts` — dynamic timer, gantry, supermajority, `addVote`, `resolveEffectiveSensitivity`, `resolvePublishMode`, `isHoldPublishDue`
+- `publish.ts` — Fedica integration; `composePostText` + `validatePostForDestinations` (Twitter/X 280-char limit, image warning for Facebook/Instagram). `nextWeekdayAt9amAest` uses `Australia/Sydney` via `Intl` (DST-aware). Set `FEDICA_API_KEY` to enable live calls; stub mode active without it.
+- `database.ts` — `atomicVoteAndUpdate`, `atomicResolve`, `getSubmissionsInState`, `getConfigValue`/`setConfigValue` (stores standing queue message ID)
+- `interaction.ts` — button/modal handlers: vote, edit (direct), send-back → IN_EDIT → resubmit, manual publish, withdraw, cancel-hold, retry publish
+- `timer.ts` — gantry notifications, hold auto-publish (APPROVED + elapsed `scheduledAt`), calls `refreshQueueMessage` each tick
+- `queue.ts` — `buildQueueEmbed`, `initQueueMessage`, `refreshQueueMessage` for the standing `#auth-queue` channel message
+- `llm-pipeline.ts` — **STUB**: AI risk assessment (agree/escalate/downgrade). Wire with `LLM_API_KEY` + `LLM_MODEL` (Anthropic) once available. Escalation is binding; downgrade is advisory.
+- `submit.ts` — `/authpost` slash command with autocomplete for destinations and policy tags
+- `types.ts` — all types, `SENSITIVITY_CONFIG`, `TIMER_CONSTANTS`, `DESTINATIONS`, `POLICY_TAGS`, `HASHTAGS_CORE/BRANCH`
 
 ### `governance/ChannelUtils.ts`
 Shared utility mapping Discord channel names to `ChannelCategory` enum values.
@@ -50,11 +53,14 @@ Shared utility mapping Discord channel names to `ChannelCategory` enum values.
 ## Development
 
 ```bash
-npm run typecheck   # tsc --noEmit across governance/ + host-stubs/
-npm test            # vitest run (governance/**/*.test.ts)
+just check          # typecheck + tests (CI equivalent)
+just test           # vitest run
+just test-watch     # vitest watch mode
+just test-file <path>  # single test file
+just typecheck      # tsc --noEmit only
 ```
 
-CI runs both on every push and pull request (`.github/workflows/typecheck.yml`).
+CI runs typecheck + tests on every push and pull request (`.github/workflows/typecheck.yml`).
 
 Tests live alongside source as `*.test.ts`. Currently cover both calculator modules (timer math, gantry logic, vote rules). Discord interaction handlers and the timer service are not unit-tested — they depend on Discord.js and the background scheduler.
 
@@ -79,5 +85,5 @@ A test suite that only passes sunny-day scenarios gives false confidence. If a t
 ## Pending
 
 - **Fedica live calls**: set `FEDICA_API_KEY` (and optionally `FEDICA_API_URL`) on the host bot. Stub mode is active until then.
-- **LLM content pipeline**: wire up `governance/social-auth/llm-pipeline.ts` with `LLM_API_KEY`, `LLM_MODEL` (Anthropic), and `POLICY_INDEX_URL` (vector store for policy RAG). Currently all three stages are stubs.
-- **AEDT support**: `nextWeekdayAt9amAest()` uses a fixed UTC+10 offset; it will be 1 hour off during Australian summer (AEDT = UTC+11). Use a timezone library or the `Australia/Sydney` locale once available.
+- **LLM risk assessment**: set `LLM_API_KEY` + `LLM_MODEL` (Anthropic Claude) on the host bot to enable `assessRisk()`. Optionally set `POLICY_INDEX_URL` for policy RAG retrieval. Stub mode returns `agree` always.
+- **Host-bot wiring**: see `README.md` for the three additions needed in the private Aometry host.
