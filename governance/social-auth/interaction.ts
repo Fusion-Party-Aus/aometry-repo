@@ -201,6 +201,9 @@ async function handleAuthPostModalSubmit(
     // Persist AI assessment fields onto the submission. When the AI escalates we carry
     // the effective sensitivity AND requiredApprovals forward so the publish-mode decision
     // in resolveApproved (which reads submission.sensitivity from the DB) stays consistent.
+    // If escalation moves the post to a tier where self-approval isn't allowed, the
+    // submitter's original selfApprove flag must be cleared — otherwise a LOW-tier
+    // self-approve could carry over into a HIGH-tier post that requires independent review.
     const submissionWithRisk = {
       ...submission,
       ...(riskAnnotation ? {
@@ -210,6 +213,7 @@ async function handleAuthPostModalSubmit(
         aiRiskFlags: riskAnnotation.flags,
         sensitivity: effectiveSensitivity,
         requiredApprovals: effectiveConfig.requiredApprovals,
+        selfApprove: submission.selfApprove && effectiveConfig.allowSelfApprove,
       } : {}),
     };
     db.updateSubmission(submissionWithRisk);
@@ -365,7 +369,9 @@ async function resolveApproved(
     resolvedAt: new Date(),
     outcome: "approved",
     outcomeReason: reason,
-    ...(autoPublishAt && { scheduledAt: autoPublishAt, holdUntil: autoPublishAt }),
+    // holdUntil drives the 15-min auto-publish trigger only — scheduledAt (the intended
+    // Fedica post time) must stay untouched, or the hold window silently reschedules the post.
+    ...(autoPublishAt && { holdUntil: autoPublishAt }),
   };
 
   // Only proceed if the submission is still PENDING in the DB (concurrent-safe).
@@ -429,7 +435,20 @@ async function resolveApproved(
     .setColor(0x00aa00);
   if (message) await message.edit({ embeds: [pendingEmbed], components: [] });
 
-  const result = await publishToFedica(approved);
+  // Claim APPROVED → PUBLISHING before the external call so a crash/retry between the
+  // Fedica call succeeding and the final atomicResolve can't cause a duplicate publish.
+  db.atomicResolve(
+    { ...approved, status: AuthPostStatus.PUBLISHING },
+    { postId: approved.id, eventType: 'publish_attempt', timestamp: new Date(), details: { trigger: 'auto' } },
+    AuthPostStatus.APPROVED
+  );
+
+  let result;
+  try {
+    result = await publishToFedica(approved);
+  } catch (error) {
+    result = { success: false as const, error: error instanceof Error ? error.message : String(error) };
+  }
 
   const finalSubmission: SocialAuthSubmission = result.success
     ? {
@@ -446,7 +465,7 @@ async function resolveApproved(
     eventType: result.success ? "publish_success" : "publish_failure",
     timestamp: new Date(),
     details: result,
-  }, AuthPostStatus.APPROVED);
+  }, AuthPostStatus.PUBLISHING);
 
   const schedStr = result.fedicaScheduledAt
     ? `\nScheduled for: **${result.fedicaScheduledAt.toISOString()}**`
@@ -589,6 +608,14 @@ async function handleAuthPostEditSubmit(interaction: ModalSubmitInteraction, _cl
       });
     }
 
+    // Only the original submitter or a moderator may resubmit content — the edit modal
+    // is reachable by any member via the "Edit" button, so this must be checked at submit.
+    const canEdit = interaction.user.id === submission.submitterId ||
+      !!interaction.memberPermissions?.has('ManageMessages');
+    if (!canEdit) {
+      return interaction.editReply({ embeds: [errorEmbed("Unauthorized", "Only the submitter or a moderator can edit this post")] });
+    }
+
     const newContent: PostContent = {
       commentary: interaction.fields.getTextInputValue("commentary"),
       articleLink: interaction.fields.getTextInputValue("article_link") || null,
@@ -597,6 +624,16 @@ async function handleAuthPostEditSubmit(interaction: ModalSubmitInteraction, _cl
         .split(/\s+/).map(t => t.replace(/^#/, "")).filter(Boolean),
     };
     const reason = interaction.fields.getTextInputValue("reason") || undefined;
+
+    // Destination constraints (Twitter length, image requirements) can be violated by an
+    // edit just as easily as the original submission — re-validate before persisting.
+    const validationIssues = validatePostForDestinations(newContent, submission.destinations);
+    const hardErrors = validationIssues.filter(e => e.severity === 'error');
+    if (hardErrors.length > 0) {
+      return interaction.editReply({
+        embeds: [errorEmbed('Validation Error', hardErrors.map(e => e.message).join('\n'))],
+      });
+    }
 
     db.addEdit(postId, {
       editedBy: interaction.user.id,
@@ -607,6 +644,13 @@ async function handleAuthPostEditSubmit(interaction: ModalSubmitInteraction, _cl
       reason,
     });
 
+    // Re-run AI risk assessment against the edited content — the prior annotation described
+    // text that no longer exists, so it must not be shown as if it still applies.
+    let riskAnnotation: Awaited<ReturnType<typeof assessRisk>> | null = null;
+    try {
+      riskAnnotation = await assessRisk({ content: newContent, destinations: submission.destinations, submitterSensitivity: submission.sensitivity });
+    } catch { /* LLM unavailable — proceed without annotation */ }
+
     // Edits invalidate prior votes - approvers were approving the old text. Reset to PENDING.
     const reset: SocialAuthSubmission = {
       ...submission,
@@ -614,6 +658,10 @@ async function handleAuthPostEditSubmit(interaction: ModalSubmitInteraction, _cl
       status: AuthPostStatus.PENDING,
       approveVotes: [],
       objectVotes: [],
+      aiRiskVerdict: riskAnnotation?.verdict,
+      aiSuggestedSensitivity: riskAnnotation?.suggestedSensitivity,
+      aiRiskSummary: riskAnnotation?.summary,
+      aiRiskFlags: riskAnnotation?.flags,
     };
     const retimed = {
       ...reset,
@@ -775,6 +823,17 @@ async function handleAuthPostManualPublish(interaction: ButtonInteraction, _clie
       return interaction.editReply({ embeds: [errorEmbed("Unauthorized", "Only an approver, the submitter, or a moderator can publish this post")] });
     }
 
+    // Atomically claim APPROVED/PUBLISH_FAILED → PUBLISHING before calling Fedica so a
+    // replayed button click or a concurrent withdraw cannot race the external call.
+    const claimed = db.atomicResolve(
+      { ...submission, status: AuthPostStatus.PUBLISHING },
+      { postId: submission.id, eventType: 'publish_attempt', timestamp: new Date(), details: { trigger: 'manual' } },
+      submission.status
+    );
+    if (!claimed) {
+      return interaction.editReply({ embeds: [errorEmbed("Already In Progress", `${submission.id} is already being published or was resolved by a concurrent interaction.`)] });
+    }
+
     const message = await getInteractionMessage(interaction, submission.messageId);
     const pendingEmbed = new EmbedBuilder()
       .setTitle(`📤 ${submission.id} — Publishing to Fedica`)
@@ -782,7 +841,12 @@ async function handleAuthPostManualPublish(interaction: ButtonInteraction, _clie
       .setColor(0x00aa00);
     if (message) await message.edit({ embeds: [pendingEmbed], components: [] });
 
-    const result = await publishToFedica(submission);
+    let result;
+    try {
+      result = await publishToFedica(submission);
+    } catch (error) {
+      result = { success: false as const, error: error instanceof Error ? error.message : String(error) };
+    }
     const finalSubmission: SocialAuthSubmission = result.success
       ? { ...submission, status: AuthPostStatus.PUBLISHED, publishedAt: new Date(), fedicaPostId: result.fedicaPostId, fedicaScheduledAt: result.fedicaScheduledAt }
       : { ...submission, status: AuthPostStatus.PUBLISH_FAILED, fedicaError: result.error };
@@ -791,7 +855,7 @@ async function handleAuthPostManualPublish(interaction: ButtonInteraction, _clie
       eventType: result.success ? 'publish_success' : 'publish_failure',
       timestamp: new Date(),
       details: result,
-    }, submission.status);
+    }, AuthPostStatus.PUBLISHING);
 
     const schedStr = result.fedicaScheduledAt ? `\nScheduled: **${result.fedicaScheduledAt.toISOString()}**` : '';
     const finalEmbed = new EmbedBuilder()

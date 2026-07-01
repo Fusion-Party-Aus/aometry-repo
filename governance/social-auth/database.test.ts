@@ -233,6 +233,14 @@ describe('updateSubmission — durable escalation & hold fields', () => {
     expect(fetched.scheduledAt?.toISOString()).toBe(scheduledAt.toISOString());
   });
 
+  it('persists a selfApprove change made after creation (AI-escalation reconciliation)', () => {
+    const sub = db.createSubmission(makeRequest({ selfApprove: true }), 1, 240);
+    expect(db.getSubmission(sub.id)!.selfApprove).toBe(true);
+
+    db.updateSubmission({ ...sub, selfApprove: false });
+    expect(db.getSubmission(sub.id)!.selfApprove).toBe(false);
+  });
+
   it('persists an escalated sensitivity and required-approval count', () => {
     const sub = db.createSubmission(makeRequest({ sensitivity: Sensitivity.LOW }), 1, 240);
     db.updateSubmission({ ...sub, sensitivity: Sensitivity.HIGH, requiredApprovals: 2 });

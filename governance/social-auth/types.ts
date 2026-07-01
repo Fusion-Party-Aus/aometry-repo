@@ -6,6 +6,9 @@
  * parameterised by sensitivity tier instead of NCAP category.
  */
 
+// Type-only import to avoid a runtime circular dependency (llm-pipeline.ts imports from types.ts).
+import type { RiskFlag } from './llm-pipeline';
+
 /**
  * Lifecycle status of a social auth submission
  */
@@ -205,7 +208,7 @@ export interface SocialAuthSubmission {
   aiRiskVerdict?: 'agree' | 'escalate' | 'downgrade';
   aiSuggestedSensitivity?: Sensitivity;
   aiRiskSummary?: string;
-  aiRiskFlags?: { severity: 'info' | 'warning' | 'critical'; reason: string; policyReference?: string }[];
+  aiRiskFlags?: RiskFlag[];
 
   // Discord integration
   channelId: string;

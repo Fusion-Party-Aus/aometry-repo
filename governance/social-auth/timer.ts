@@ -50,16 +50,21 @@ async function checkPendingSubmissions(client: BotClient) {
           outcome: 'blocked' as const,
           outcomeReason: 'Timer expired while awaiting resubmission',
         };
-        db.atomicResolve(blocked, {
+        // Guard against the read-then-write race: only transition if the row is still
+        // IN_EDIT in the DB. A concurrent resubmit may have already moved it to PENDING
+        // off this stale in-memory snapshot, and that must not be overwritten as BLOCKED.
+        const claimed = db.atomicResolve(blocked, {
           postId: submission.id,
           eventType: 'expiration',
           timestamp: new Date(),
           details: { reason: 'in_edit_timeout' },
-        });
-        await notifyChannel(
-          client, submission.channelId, submission.messageId,
-          `⏱️ **${submission.id}** expired while awaiting resubmission and has been blocked. Re-submit if still needed.`
-        );
+        }, AuthPostStatus.IN_EDIT);
+        if (claimed) {
+          await notifyChannel(
+            client, submission.channelId, submission.messageId,
+            `⏱️ **${submission.id}** expired while awaiting resubmission and has been blocked. Re-submit if still needed.`
+          );
+        }
       }
       continue;
     }
@@ -137,7 +142,14 @@ async function checkPendingSubmissions(client: BotClient) {
     );
     if (!claimed) continue;
 
-    const result = await publishToFedica(submission);
+    // A thrown error (vs. a returned { success: false }) must still resolve the claimed
+    // row — otherwise it is stuck in PUBLISHING forever and never re-enters the retry path.
+    let result;
+    try {
+      result = await publishToFedica(submission);
+    } catch (error) {
+      result = { success: false as const, error: error instanceof Error ? error.message : String(error) };
+    }
     const now = new Date();
 
     if (result.success) {

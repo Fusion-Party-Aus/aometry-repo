@@ -88,6 +88,27 @@ describe('buildQueueEmbed', () => {
     const hasOverflowMarker = /\+\d+ more/.test(rendered);
     expect(shownCount === many.length || hasOverflowMarker).toBe(true);
   });
+
+  it('exercises the >25-field overflow branch: shown + reported-omitted exactly equals total', () => {
+    // Force well past Discord's 25-field cap and past the 1024-char chunk size, so the
+    // section-splitting logic must produce more than 25 continuation fields.
+    const many = Array.from({ length: 1000 }, (_, i) =>
+      makeSubmission({ id: `AUTH-2026-${String(i + 1).padStart(4, '0')}` })
+    );
+    const embed = buildQueueEmbed(many);
+    const fields = embed.data.fields ?? [];
+
+    expect(fields.length).toBeLessThanOrEqual(25);
+
+    const overflowField = fields.find(f => /\+\d+ more not shown/.test(f.value));
+    expect(overflowField).toBeDefined();
+    const omittedCount = parseInt(overflowField!.value.match(/\+(\d+) more not shown/)![1], 10);
+
+    const rendered = JSON.stringify(fields);
+    const shownCount = many.filter(s => rendered.includes(s.id)).length;
+
+    expect(shownCount + omittedCount).toBe(many.length);
+  });
 });
 
 describe('bot_config DB methods', () => {
