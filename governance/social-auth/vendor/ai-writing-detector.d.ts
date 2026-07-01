@@ -16,7 +16,7 @@ export interface AiDetectorResult {
   label: string;
   issues: AiDetectorIssue[];
   stats: Record<string, unknown>;
-  document_classification?: 'HUMAN_ONLY' | 'MIXED' | 'AI_ONLY';
+  document_classification?: 'HUMAN_ONLY' | 'MIXED' | 'AI_ONLY' | 'UNSCORED';
   tooShort?: boolean;
   tooLong?: boolean;
 }

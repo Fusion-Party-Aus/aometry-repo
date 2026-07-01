@@ -94,6 +94,24 @@ describe('assessRisk — AI writing-style detector integration', () => {
     }));
     expect(result.verdict).toBe('agree');
   });
+
+  it('scores the full composePostText output, not just commentary — hashtag buzzwords alone can trigger a flag', async () => {
+    // Commentary alone is plain and would score 0. The hashtags carry a dense run of
+    // Tier-1 AI-vocabulary markers instead. If assessRisk only analysed
+    // request.content.commentary (rather than composePostText(request.content), which
+    // also appends the article link, policy links, and hashtags), this would never flag.
+    const plainCommentaryWithBuzzwordHashtags: PostContent = {
+      commentary: 'Voted yes on the housing bill today.',
+      articleLink: null,
+      policyLinks: [],
+      hashtags: [
+        'delve', 'tapestry', 'paradigm', 'robust', 'comprehensive',
+        'meticulous', 'seamless', 'holistic', 'synergy', 'embrace',
+      ],
+    };
+    const result = await assessRisk(makeRequest({ content: plainCommentaryWithBuzzwordHashtags }));
+    expect(result.flags.length).toBeGreaterThan(0);
+  });
 });
 
 describe('assessRisk — sensitivity escalation logic (for live implementation)', () => {

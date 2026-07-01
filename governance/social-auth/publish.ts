@@ -144,16 +144,11 @@ export function weightedTweetLength(text: string): number {
   return textPoints + urls.length * TWITTER_URL_WEIGHT;
 }
 
-/**
- * Compose the final post text from content fields (same order Fedica receives it).
- */
-export function composePostText(content: PostContent): string {
-  let text = content.commentary;
-  if (content.articleLink) text += `\n${content.articleLink}`;
-  content.policyLinks.forEach(url => { text += `\nSee our policy here: ${url}`; });
-  if (content.hashtags.length) text += `\n${content.hashtags.map(t => `#${t}`).join(' ')}`;
-  return text;
-}
+// Re-exported for existing callers (interaction.ts, this file's own validators/payload
+// builder) — the canonical implementation lives in content.ts, a lower-level module with
+// no Fedica dependency, so llm-pipeline.ts can use it without importing this publish layer.
+export { composePostText } from './content';
+import { composePostText } from './content';
 
 export interface ValidationIssue {
   severity: 'error' | 'warning';

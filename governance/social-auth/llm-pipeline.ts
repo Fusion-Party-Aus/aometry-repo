@@ -29,7 +29,7 @@
  */
 
 import { Destination, PostContent, Sensitivity } from './types';
-import { composePostText } from './publish';
+import { composePostText } from './content';
 import { checkAiWritingStyle } from './ai-writing-style';
 
 export interface LlmPipelineConfig {
