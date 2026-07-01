@@ -138,12 +138,6 @@ export interface DraftResult {
   outputTokens: number;
 }
 
-export interface LlmPipelineConfig {
-  apiKey: string;
-  model: string;
-  policyIndexUrl?: string;
-}
-
 // ---------------------------------------------------------------------------
 // Stage 1: Topic research
 // ---------------------------------------------------------------------------
