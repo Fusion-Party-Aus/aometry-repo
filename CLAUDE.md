@@ -1,6 +1,6 @@
 # aometry-repo
 
-Public Aometry module repository providing Fusion Party governance plugins for their Discord server. [Aometry](https://github.com/Fusion-Party-Aus/aometry) is a modular Discord bot architecture; this repo extends the base bot with Fusion-specific workflows. The modules are designed for Fusion, but Aometry itself is not a Fusion-specific bot.
+Public Aometry module repository providing Fusion Party governance plugins for their Discord server. [Aometry](https://github.com/Axion-Au/Aometry) is a modular Discord bot architecture owned by Axion Ventures and not affiliated with Fusion Party. This repo extends the base Aometry bot with Fusion-specific governance workflows.
 
 The private Aometry host instance imports these modules at runtime; this repo exists so they can be developed and typechecked independently.
 
