@@ -155,27 +155,32 @@ export function composePostText(content: PostContent): string {
   return text;
 }
 
+export interface ValidationIssue {
+  severity: 'error' | 'warning';
+  message: string;
+}
+
 /**
  * Validate post content against destination-specific constraints.
- * Returns an array of human-readable error/warning strings (empty = valid).
+ * Returns structured issues: severity='error' blocks submission; severity='warning' is advisory.
  */
-export function validatePostForDestinations(content: PostContent, destinations: Destination[]): string[] {
-  const errors: string[] = [];
+export function validatePostForDestinations(content: PostContent, destinations: Destination[]): ValidationIssue[] {
+  const issues: ValidationIssue[] = [];
   const text = composePostText(content);
 
   if (destinations.includes('Twitter/X')) {
     const weighted = weightedTweetLength(text);
     if (weighted > TWITTER_CHAR_LIMIT) {
-      errors.push(`Twitter/X limit is ${TWITTER_CHAR_LIMIT} characters — composed post is ${weighted} chars (links count as ${TWITTER_URL_WEIGHT}). Shorten the commentary or hashtags.`);
+      issues.push({ severity: 'error', message: `Twitter/X limit is ${TWITTER_CHAR_LIMIT} characters — composed post is ${weighted} chars (links count as ${TWITTER_URL_WEIGHT}). Shorten the commentary or hashtags.` });
     }
   }
 
   if (destinations.some(d => IMAGE_DESTINATIONS.includes(d))) {
     const imageTargets = destinations.filter(d => IMAGE_DESTINATIONS.includes(d)).join(' and ');
-    errors.push(`${imageTargets} selected — you will need to attach an image manually in Fedica before publishing.`);
+    issues.push({ severity: 'warning', message: `${imageTargets} selected — you will need to attach an image manually in Fedica before publishing.` });
   }
 
-  return errors;
+  return issues;
 }
 
 export function buildFedicaPayload(submission: SocialAuthSubmission): FedicaPublishPayload {

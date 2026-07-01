@@ -295,39 +295,39 @@ describe('validatePostForDestinations', () => {
 
   it('returns a char-limit error when composed text exceeds 280 chars for Twitter/X', () => {
     const errors = validatePostForDestinations(longContent, ['Twitter/X']);
-    expect(errors.some(e => e.includes('280'))).toBe(true);
+    expect(errors.some(e => e.severity === 'error' && e.message.includes('280'))).toBe(true);
   });
 
   it('does not flag char limit for non-Twitter destinations', () => {
     const errors = validatePostForDestinations(longContent, ['Facebook']);
-    expect(errors.every(e => !e.includes('280'))).toBe(true);
+    expect(errors.every(e => !e.message.includes('280'))).toBe(true);
   });
 
   it('returns image warning when Facebook is a destination', () => {
     const errors = validatePostForDestinations(shortContent, ['Facebook']);
-    expect(errors.some(e => e.toLowerCase().includes('image'))).toBe(true);
+    expect(errors.some(e => e.severity === 'warning' && e.message.toLowerCase().includes('image'))).toBe(true);
   });
 
   it('returns image warning when Instagram is a destination', () => {
     const errors = validatePostForDestinations(shortContent, ['Instagram']);
-    expect(errors.some(e => e.toLowerCase().includes('image'))).toBe(true);
+    expect(errors.some(e => e.severity === 'warning' && e.message.toLowerCase().includes('image'))).toBe(true);
   });
 
   it('no image warning for Twitter/X only', () => {
     const errors = validatePostForDestinations(shortContent, ['Twitter/X']);
-    expect(errors.every(e => !e.toLowerCase().includes('image'))).toBe(true);
+    expect(errors.every(e => !e.message.toLowerCase().includes('image'))).toBe(true);
   });
 
-  it('flags both char limit and image warning together', () => {
+  it('flags both char limit error and image warning together', () => {
     const errors = validatePostForDestinations(longContent, ['Twitter/X', 'Facebook']);
-    expect(errors.some(e => e.includes('280'))).toBe(true);
-    expect(errors.some(e => e.toLowerCase().includes('image'))).toBe(true);
+    expect(errors.some(e => e.severity === 'error' && e.message.includes('280'))).toBe(true);
+    expect(errors.some(e => e.severity === 'warning' && e.message.toLowerCase().includes('image'))).toBe(true);
   });
 
-  it('char limit error includes actual character count', () => {
+  it('char limit error includes actual weighted character count', () => {
     const errors = validatePostForDestinations(longContent, ['Twitter/X']);
-    const charError = errors.find(e => e.includes('280'))!;
-    expect(charError).toContain(String(weightedTweetLength(composePostText(longContent))));
+    const charError = errors.find(e => e.severity === 'error' && e.message.includes('280'))!;
+    expect(charError.message).toContain(String(weightedTweetLength(composePostText(longContent))));
   });
 
   it('does not flag a URL-heavy but short post that only exceeds 280 by raw length', () => {
@@ -343,6 +343,6 @@ describe('validatePostForDestinations', () => {
     };
     expect(composePostText(urlHeavy).length).toBeGreaterThan(280);
     const errors = validatePostForDestinations(urlHeavy, ['Twitter/X']);
-    expect(errors.some(e => e.includes('280'))).toBe(false);
+    expect(errors.some(e => e.severity === 'error' && e.message.includes('280'))).toBe(false);
   });
 });
