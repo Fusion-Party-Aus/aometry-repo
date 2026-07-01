@@ -7,6 +7,7 @@ import {
   addVote,
   formatTimerDuration,
   getTimeRemaining,
+  updateSubmissionTimer,
 } from './calculator';
 import {
   SocialAuthSubmission,
@@ -296,5 +297,46 @@ describe('formatTimerDuration', () => {
 
   it('days with hours → "Xd Yh"', () => {
     expect(formatTimerDuration(1500)).toBe('1d 1h');
+  });
+});
+
+describe('updateSubmissionTimer — NATURAL_APPROVAL gantry', () => {
+  it('enters NATURAL_APPROVAL when remaining ≤ 25% of initial timer', () => {
+    // initialTimerMinutes = T=1000, 25% threshold = 250 min
+    // Set submittedAt so that expiresAt is 200 min from FIXED_NOW (< 250 → should trigger)
+    const submittedAt = new Date(FIXED_NOW.getTime() - (1000 - 200) * 60000);
+    const sub = makeSubmission({ submittedAt, expiresAt: new Date(FIXED_NOW.getTime() + 200 * 60000) });
+    const updated = updateSubmissionTimer(sub);
+    expect(updated.timerCalculation.gantryState).toBe(GantryState.NATURAL_APPROVAL);
+    expect(updated.timerCalculation.gantryExpiresAt).toEqual(updated.expiresAt);
+  });
+
+  it('does NOT enter NATURAL_APPROVAL when remaining > 25% of initial timer', () => {
+    // 300 min remaining with T=1000 → 30% > 25%, should stay NONE
+    const submittedAt = new Date(FIXED_NOW.getTime() - (1000 - 300) * 60000);
+    const sub = makeSubmission({ submittedAt, expiresAt: new Date(FIXED_NOW.getTime() + 300 * 60000) });
+    const updated = updateSubmissionTimer(sub);
+    expect(updated.timerCalculation.gantryState).toBe(GantryState.NONE);
+  });
+
+  it('does NOT override VOTED_APPROVAL gantry even if remaining ≤ 25%', () => {
+    // Full pool approval pushes timer to floor → VOTED_APPROVAL gantry from vote calc
+    const approves = makeVotes(POOL_IDS, VoteType.APPROVE);
+    const submittedAt = new Date(FIXED_NOW.getTime() - (1000 - 100) * 60000);
+    const sub = makeSubmission({
+      approveVotes: approves,
+      submittedAt,
+      expiresAt: new Date(FIXED_NOW.getTime() + 100 * 60000),
+    });
+    const updated = updateSubmissionTimer(sub);
+    expect(updated.timerCalculation.gantryState).toBe(GantryState.VOTED_APPROVAL);
+  });
+
+  it('does NOT enter NATURAL_APPROVAL when timer has already expired', () => {
+    const submittedAt = new Date(FIXED_NOW.getTime() - 1100 * 60000);
+    const sub = makeSubmission({ submittedAt, expiresAt: new Date(FIXED_NOW.getTime() - 100 * 60000) });
+    const updated = updateSubmissionTimer(sub);
+    // expired → remainingMs ≤ 0, so no natural gantry
+    expect(updated.timerCalculation.gantryState).toBe(GantryState.NONE);
   });
 });

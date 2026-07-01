@@ -1,6 +1,5 @@
 /**
  * NCAP (Negative Consent Approval Protocol) Type Definitions
- * Based on Source Party Constitution Rule 49 and Schedule B
  */
 
 /**
@@ -17,7 +16,6 @@ export enum NcapStatus {
 
 /**
  * NCAP Gantry State
- * Represents the current gantry period state per Rule 49(5)
  */
 export enum GantryState {
   NONE = 'none',                              // No gantry active
@@ -28,7 +26,6 @@ export enum GantryState {
 
 /**
  * Vote Type
- * Per Rule 49(4), members can APPROVE or OBJECT
  */
 export enum VoteType {
   APPROVE = 'approve',
@@ -60,7 +57,7 @@ export interface NcapVote {
 
 /**
  * Dynamic Timer Calculation Result
- * Per Rule 49(3), timer adjusts based on vote participation
+ * Timer adjusts based on vote participation rates
  */
 export interface TimerCalculation {
   initialTimerMinutes: number;       // Original timer duration T
@@ -83,23 +80,20 @@ export interface NcapSubmission {
   // Identity
   id: string;                        // Unique ID (e.g., "NCAP-2025-001")
   
-  // Core submission data per Rule 49(2)(b)
   title: string;                     // Short description
   description: string;               // Detailed explanation
   category: string;                  // Category for default timer selection
-  
-  // Proposer (cannot vote on own submission per Rule 49(4)(d))
+
+  // Proposer (cannot vote on own submission)
   proposerId: string;                // Discord user ID
   proposerName: string;              // Discord username
-  
-  // Approver pool per Rule 49(2)(c)
+
   approverPool: ApproverPool;
-  
-  // Timer configuration
-  initialTimerMinutes: number;       // T per Rule 49(2)(b)(iv)
+
+  initialTimerMinutes: number;       // Timer duration T
   urgency: 'urgent' | 'standard' | 'significant' | 'major';
-  
-  // Financial (if applicable) per Rule 50
+
+  // Financial (if applicable)
   spendingAmount?: number;           // Amount in AUD
   budgetCategory?: string;
   
@@ -153,7 +147,6 @@ export interface NcapSubmissionRequest {
 
 /**
  * NCAP Category Configuration
- * Default settings for NCAP categories per Rule 51
  */
 export interface NcapCategory {
   name: string;
@@ -166,7 +159,6 @@ export interface NcapCategory {
 
 /**
  * NCAP Audit Log Entry
- * Complete audit trail per Rule 76(1)(v)
  */
 export interface NcapAuditLog {
   id: number;
@@ -182,7 +174,7 @@ export interface NcapAuditLog {
 }
 
 /**
- * Default NCAP Categories per Rule 51(1)
+ * Default NCAP Categories
  */
 export const DEFAULT_NCAP_CATEGORIES: NcapCategory[] = [
   {
@@ -236,18 +228,14 @@ export const DEFAULT_NCAP_CATEGORIES: NcapCategory[] = [
 
 /**
  * Timer Configuration Constants
- * Based on Rule 49(3) and Rule 51(2)
  */
 export const TIMER_CONSTANTS = {
-  // Modifier coefficients per Rule 49(3)
   APPROVAL_COEFFICIENT: 0.5,
   OBJECTION_COEFFICIENT: 1.0,
-  
-  // Floor and ceiling per Rule 49(3)(b)
+
   FLOOR_MULTIPLIER: 0.5,             // Timer floor = T / 2
   CEILING_MULTIPLIER: 2.0,           // Timer ceiling = 2T
-  
-  // Gantry thresholds per Rule 49(5)
+
   NATURAL_GANTRY_THRESHOLD: 0.25,    // Trigger at 25% remaining
   SUPERMAJORITY_THRESHOLD: 0.75,     // 75% approval triggers instant approval
   
@@ -273,7 +261,7 @@ export interface FinancialNcapSubmission extends NcapSubmission {
 }
 
 /**
- * Instant Resolution Triggers per Rule 49(5)(c-e)
+ * Instant Resolution Triggers
  */
 export interface InstantResolution {
   type: 'supermajority_bypass' | 'approval_gantry_approve' | 'objection_gantry_object';

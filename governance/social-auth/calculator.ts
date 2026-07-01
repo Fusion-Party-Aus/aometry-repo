@@ -1,6 +1,6 @@
 /**
  * Social Auth Timer Calculation Engine
- * Same dynamic timer/gantry model as governance/ncap (Constitution Rule 49(3)),
+ * Same dynamic timer/gantry model as governance/ncap,
  * applied to social media authorisation requests instead of NCAP submissions.
  */
 
@@ -51,10 +51,9 @@ export function calculateDynamicTimer(
     gantryState = GantryState.OBJECTION;
     const objectionGantryDuration = initialTimerMinutes * TIMER_CONSTANTS.NATURAL_GANTRY_THRESHOLD;
     gantryExpiresAt = new Date(Date.now() + objectionGantryDuration * 60 * 1000);
-  } else if (clampedTimerMinutes <= initialTimerMinutes * TIMER_CONSTANTS.NATURAL_GANTRY_THRESHOLD) {
-    gantryState = GantryState.NATURAL_APPROVAL;
-    gantryExpiresAt = new Date(Date.now() + clampedTimerMinutes * 60 * 1000);
   }
+  // NATURAL_APPROVAL gantry is wall-clock-based, not vote-based: it triggers when
+  // the remaining time drops to ≤25% of the initial timer in updateSubmissionTimer.
 
   return {
     initialTimerMinutes,
@@ -141,7 +140,9 @@ export function getTimeRemaining(submission: SocialAuthSubmission): number {
 }
 
 /**
- * Recalculate timer/gantry state from current vote counts
+ * Recalculate timer/gantry state from current vote counts and wall-clock time.
+ * NATURAL_APPROVAL gantry fires when remaining time ≤ 25% of the initial timer
+ * and no vote-driven gantry (VOTED_APPROVAL / OBJECTION) is already active.
  */
 export function updateSubmissionTimer(submission: SocialAuthSubmission): SocialAuthSubmission {
   const submittedAt = new Date(submission.submittedAt).getTime();
@@ -154,8 +155,19 @@ export function updateSubmissionTimer(submission: SocialAuthSubmission): SocialA
   );
 
   const expiresAt = new Date(submittedAt + timerCalc.clampedTimerMinutes * 60000);
+  const remainingMs = expiresAt.getTime() - Date.now();
+  const naturalGantryMs = timerCalc.initialTimerMinutes * 60000 * TIMER_CONSTANTS.NATURAL_GANTRY_THRESHOLD;
 
-  return { ...submission, timerCalculation: timerCalc, expiresAt };
+  let finalTimerCalc = timerCalc;
+  if (
+    timerCalc.gantryState === GantryState.NONE &&
+    remainingMs > 0 &&
+    remainingMs <= naturalGantryMs
+  ) {
+    finalTimerCalc = { ...timerCalc, gantryState: GantryState.NATURAL_APPROVAL, gantryExpiresAt: expiresAt };
+  }
+
+  return { ...submission, timerCalculation: finalTimerCalc, expiresAt };
 }
 
 /**

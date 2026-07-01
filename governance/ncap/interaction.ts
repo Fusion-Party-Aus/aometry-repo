@@ -1,7 +1,7 @@
 /**
  * NCAP Interaction Handlers
  * Handles vote submissions, gantry transitions, and dynamic timer recalculation
- * Per Constitution Rules 49, 50, 51, 76
+ * Handles vote submissions, gantry transitions, and dynamic timer recalculation
  */
 
 import {
@@ -235,7 +235,7 @@ async function handleNcapApprove(
         embeds: [
           errorEmbed(
             "Cannot Vote",
-            "Proposers cannot vote on their own NCAP submissions (Rule 49(3)(b))."
+            "Proposers cannot vote on their own NCAP submissions."
           ),
         ],
       });
@@ -273,7 +273,7 @@ async function handleNcapApprove(
       const resolved = new EmbedBuilder()
         .setTitle("⚡ NCAP Instantly Approved")
         .setDescription(
-          `**${ncapId}** has reached supermajority approval (≥75%) and is instantly approved per Rule 49(3)(c).`
+          `**${ncapId}** has reached supermajority approval (≥75%) and is instantly approved.`
         )
         .addFields({
           name: "Final Vote",
@@ -377,7 +377,7 @@ async function handleNcapObject(
         embeds: [
           errorEmbed(
             "Cannot Vote",
-            "Proposers cannot vote on their own NCAP submissions (Rule 49(3)(b))."
+            "Proposers cannot vote on their own NCAP submissions."
           ),
         ],
       });
@@ -564,7 +564,7 @@ function createNcapEmbed(
         inline: false,
       },
       {
-        name: "Constitutional Info",
+        name: "Submission Info",
         value: `Approver Pool: ${submission.approverPool.name}\nCategory: ${submission.category}`,
         inline: false,
       }

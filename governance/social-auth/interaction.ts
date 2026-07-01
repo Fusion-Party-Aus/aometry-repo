@@ -35,7 +35,7 @@ import {
   checkSupermajorityBypass,
   checkApprovalThresholdMet,
 } from "./calculator";
-import { publishToFedica } from "./publish";
+import { publishToFedica, parseScheduleFromText } from "./publish";
 import { errorEmbed } from "@/utils/responses";
 
 const GANTRY_COLORS: Record<GantryState, number> = {
@@ -98,7 +98,11 @@ async function handleAuthPostModalSubmit(
       .split("\n").map(l => l.trim()).filter(Boolean);
     const hashtags = (interaction.fields.getTextInputValue("hashtags") || "")
       .split(/\s+/).map(t => t.replace(/^#/, "")).filter(Boolean);
-    const notes = interaction.fields.getTextInputValue("notes") || undefined;
+    const notesRaw = interaction.fields.getTextInputValue("notes") || undefined;
+
+    // Parse "schedule: YYYY-MM-DDTHH:MM" from notes (treated as AEST).
+    // Defaults to next weekday 9am AEST at publish time if not specified.
+    const scheduledAt = notesRaw ? parseScheduleFromText(notesRaw) ?? undefined : undefined;
 
     const content: PostContent = { commentary, articleLink, policyLinks, hashtags };
 
@@ -117,8 +121,9 @@ async function handleAuthPostModalSubmit(
         destinations,
         content,
         sensitivity,
-        notes,
+        notes: notesRaw,
         selfApprove,
+        scheduledAt,
         approverPool: { name: "authnational", memberIds: approverPoolMemberIds },
         channelId: interaction.channelId ?? interaction.guildId ?? "unknown",
       },
@@ -186,8 +191,9 @@ async function castVote(interaction: ButtonInteraction, voteType: VoteType) {
     const latestVote = voteType === VoteType.APPROVE
       ? updatedSubmission.approveVotes[updatedSubmission.approveVotes.length - 1]
       : updatedSubmission.objectVotes[updatedSubmission.objectVotes.length - 1];
-    db.addVote(latestVote);
-    db.addAuditLog({
+
+    // Persist vote + submission update + audit log atomically to prevent partial writes.
+    db.atomicVoteAndUpdate(latestVote, updatedSubmission, {
       postId,
       eventType: "vote",
       actorId: interaction.user.id,
@@ -195,7 +201,6 @@ async function castVote(interaction: ButtonInteraction, voteType: VoteType) {
       timestamp: new Date(),
       details: { voteType },
     });
-    db.updateSubmission(updatedSubmission);
 
     // Threshold gate: required-approval count met (independent of the gantry/timer model)
     const thresholdMet = checkApprovalThresholdMet(updatedSubmission.approveVotes, updatedSubmission.requiredApprovals);
@@ -234,8 +239,8 @@ async function castVote(interaction: ButtonInteraction, voteType: VoteType) {
 }
 
 /**
- * Approval threshold met - mark approved, post the publish-pending state, and hand off to Fedica.
- * The publish call itself is fire-and-update: success/failure is reflected back onto the message.
+ * Approval threshold met - mark approved, post the publish-pending state, and schedule on Fedica.
+ * Uses atomicResolve to guard against two concurrent approvals both triggering the Fedica call.
  */
 async function resolveApproved(
   interaction: ButtonInteraction,
@@ -250,39 +255,57 @@ async function resolveApproved(
     outcome: "approved",
     outcomeReason: reason,
   };
-  db.updateSubmission(approved);
-  db.addAuditLog({
+
+  // Only proceed if the submission is still PENDING in the DB (concurrent-safe).
+  const claimed = db.atomicResolve(approved, {
     postId: approved.id,
     eventType: "publish_attempt",
     timestamp: new Date(),
     details: { reason },
   });
 
+  if (!claimed) {
+    // Another interaction already resolved this submission.
+    return interaction.editReply({
+      embeds: [errorEmbed("Already Resolved", `${submission.id} was already resolved by a concurrent interaction.`)],
+    });
+  }
+
   const message = await getInteractionMessage(interaction, submission.messageId);
   const pendingEmbed = new EmbedBuilder()
-    .setTitle(`✅ ${approved.id} Approved — Publishing to Fedica`)
+    .setTitle(`✅ ${approved.id} Approved — Scheduling on Fedica`)
     .setDescription(`Approved (${reason}). Destinations: ${approved.destinations.join(", ")}`)
     .setColor(0x00aa00);
   if (message) await message.edit({ embeds: [pendingEmbed], components: [] });
 
   const result = await publishToFedica(approved);
 
-  const published: SocialAuthSubmission = result.success
-    ? { ...approved, status: AuthPostStatus.PUBLISHED, publishedAt: new Date(), fedicaPostId: result.fedicaPostId }
+  const finalSubmission: SocialAuthSubmission = result.success
+    ? {
+        ...approved,
+        status: AuthPostStatus.PUBLISHED,
+        publishedAt: new Date(),
+        fedicaPostId: result.fedicaPostId,
+        fedicaScheduledAt: result.fedicaScheduledAt,
+      }
     : { ...approved, status: AuthPostStatus.PUBLISH_FAILED, fedicaError: result.error };
-  db.updateSubmission(published);
-  db.addAuditLog({
+
+  db.atomicResolve(finalSubmission, {
     postId: approved.id,
     eventType: result.success ? "publish_success" : "publish_failure",
     timestamp: new Date(),
     details: result,
-  });
+  }, AuthPostStatus.APPROVED);
+
+  const schedStr = result.fedicaScheduledAt
+    ? `\nScheduled for: **${result.fedicaScheduledAt.toISOString()}**`
+    : '';
 
   const finalEmbed = new EmbedBuilder()
-    .setTitle(result.success ? `📤 ${approved.id} Published to Fedica` : `❌ ${approved.id} Fedica Publish Failed`)
+    .setTitle(result.success ? `📅 ${approved.id} Scheduled on Fedica` : `❌ ${approved.id} Fedica Schedule Failed`)
     .setDescription(
       result.success
-        ? `Destinations: ${approved.destinations.join(", ")}\nFedica post: ${result.fedicaPostId}`
+        ? `Destinations: ${approved.destinations.join(", ")}${schedStr}\nFedica ID: ${result.fedicaPostId}`
         : `Destinations: ${approved.destinations.join(", ")}\nError: ${result.error}`
     )
     .setColor(result.success ? 0x00aa00 : 0xff4444);
@@ -290,10 +313,10 @@ async function resolveApproved(
 
   return interaction.editReply({
     embeds: [{
-      title: result.success ? "✅ Approved & Published" : "⚠️ Approved, Publish Failed",
+      title: result.success ? "✅ Approved & Scheduled" : "⚠️ Approved, Schedule Failed",
       description: result.success
-        ? `**${approved.id}** met its approval threshold and was published to Fedica.`
-        : `**${approved.id}** met its approval threshold but the Fedica publish failed: ${result.error}`,
+        ? `**${approved.id}** was approved and scheduled on Fedica.${schedStr}`
+        : `**${approved.id}** was approved but the Fedica schedule failed: ${result.error}`,
       color: result.success ? 0x00aa00 : 0xff9900,
     }],
   });

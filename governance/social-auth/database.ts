@@ -69,6 +69,8 @@ export class SocialAuthDatabaseManager {
 
         fedica_post_id TEXT,
         fedica_error TEXT,
+        scheduled_at INTEGER,
+        fedica_scheduled_at INTEGER,
 
         channel_id TEXT NOT NULL,
         message_id TEXT NOT NULL,
@@ -130,6 +132,25 @@ export class SocialAuthDatabaseManager {
       CREATE INDEX IF NOT EXISTS idx_auth_post_audit_post_id ON auth_post_audit_log(post_id);
       CREATE INDEX IF NOT EXISTS idx_auth_post_audit_event_type ON auth_post_audit_log(event_type);
     `);
+
+    // Tracks reminder thresholds already sent, so notifications are not re-sent after restart.
+    this.db.exec(`
+      CREATE TABLE IF NOT EXISTS auth_post_threshold_notifications (
+        post_id TEXT NOT NULL,
+        threshold_minutes INTEGER NOT NULL,
+        notified_at INTEGER NOT NULL,
+        PRIMARY KEY (post_id, threshold_minutes),
+        FOREIGN KEY (post_id) REFERENCES auth_post_submissions(id)
+      );
+    `);
+
+    // Safe schema migrations: add columns introduced after initial deploy.
+    for (const sql of [
+      'ALTER TABLE auth_post_submissions ADD COLUMN scheduled_at INTEGER',
+      'ALTER TABLE auth_post_submissions ADD COLUMN fedica_scheduled_at INTEGER',
+    ]) {
+      try { this.db.exec(sql); } catch { /* column already exists */ }
+    }
   }
 
   generateAuthPostId(): string {
@@ -168,6 +189,7 @@ export class SocialAuthDatabaseManager {
       sensitivity: request.sensitivity,
       notes: request.notes,
       selfApprove: request.selfApprove,
+      scheduledAt: request.scheduledAt,
       approverPool: request.approverPool,
       initialTimerMinutes,
       requiredApprovals,
@@ -191,14 +213,14 @@ export class SocialAuthDatabaseManager {
         approver_pool_name, approver_pool_member_ids,
         initial_timer_minutes, required_approvals,
         status, submitted_at, expires_at,
-        timer_calculation, channel_id, message_id
+        timer_calculation, scheduled_at, channel_id, message_id
       ) VALUES (
         @id, @submitter_id, @submitter_name,
         @destinations, @content, @sensitivity, @notes, @self_approve,
         @approver_pool_name, @approver_pool_member_ids,
         @initial_timer_minutes, @required_approvals,
         @status, @submitted_at, @expires_at,
-        @timer_calculation, @channel_id, @message_id
+        @timer_calculation, @scheduled_at, @channel_id, @message_id
       )
     `);
 
@@ -209,7 +231,7 @@ export class SocialAuthDatabaseManager {
       destinations: JSON.stringify(submission.destinations),
       content: JSON.stringify(submission.content),
       sensitivity: submission.sensitivity,
-      notes: submission.notes || null,
+      notes: submission.notes ?? null,
       self_approve: submission.selfApprove ? 1 : 0,
       approver_pool_name: submission.approverPool.name,
       approver_pool_member_ids: JSON.stringify(submission.approverPool.memberIds),
@@ -217,8 +239,9 @@ export class SocialAuthDatabaseManager {
       required_approvals: submission.requiredApprovals,
       status: submission.status,
       submitted_at: submission.submittedAt.getTime(),
-      expires_at: submission.expiresAt?.getTime() || null,
+      expires_at: submission.expiresAt?.getTime() ?? null,
       timer_calculation: JSON.stringify(submission.timerCalculation),
+      scheduled_at: submission.scheduledAt?.getTime() ?? null,
       channel_id: submission.channelId,
       message_id: submission.messageId
     });
@@ -270,6 +293,8 @@ export class SocialAuthDatabaseManager {
         outcome_reason = @outcome_reason,
         fedica_post_id = @fedica_post_id,
         fedica_error = @fedica_error,
+        scheduled_at = @scheduled_at,
+        fedica_scheduled_at = @fedica_scheduled_at,
         message_id = @message_id,
         thread_id = @thread_id,
         updated_at = @updated_at
@@ -280,18 +305,72 @@ export class SocialAuthDatabaseManager {
       id: submission.id,
       content: JSON.stringify(submission.content),
       status: submission.status,
-      expires_at: submission.expiresAt?.getTime() || null,
-      resolved_at: submission.resolvedAt?.getTime() || null,
-      published_at: submission.publishedAt?.getTime() || null,
+      expires_at: submission.expiresAt?.getTime() ?? null,
+      resolved_at: submission.resolvedAt?.getTime() ?? null,
+      published_at: submission.publishedAt?.getTime() ?? null,
       timer_calculation: JSON.stringify(submission.timerCalculation),
-      outcome: submission.outcome || null,
-      outcome_reason: submission.outcomeReason || null,
-      fedica_post_id: submission.fedicaPostId || null,
-      fedica_error: submission.fedicaError || null,
+      outcome: submission.outcome ?? null,
+      outcome_reason: submission.outcomeReason ?? null,
+      fedica_post_id: submission.fedicaPostId ?? null,
+      fedica_error: submission.fedicaError ?? null,
+      scheduled_at: submission.scheduledAt?.getTime() ?? null,
+      fedica_scheduled_at: submission.fedicaScheduledAt?.getTime() ?? null,
       message_id: submission.messageId,
-      thread_id: submission.threadId || null,
+      thread_id: submission.threadId ?? null,
       updated_at: Date.now()
     });
+  }
+
+  /**
+   * Atomically record a vote, update the submission, and write the audit log entry
+   * in a single SQLite transaction. Prevents partial-write inconsistency when two
+   * concurrent vote interactions interleave.
+   */
+  atomicVoteAndUpdate(vote: AuthPostVote, submission: SocialAuthSubmission, auditEntry: Omit<AuthPostAuditLog, 'id'>): void {
+    const run = this.db.transaction(() => {
+      this.addVote(vote);
+      this.updateSubmission(submission);
+      this.addAuditLog(auditEntry);
+    });
+    run();
+  }
+
+  /**
+   * Atomically transition a submission to an approved/blocked/published/failed state
+   * and record the audit log entry. Guards against two concurrent approvals both
+   * triggering the Fedica publish by only updating if the current DB status is PENDING.
+   * Returns true if the update was applied, false if another interaction already resolved it.
+   */
+  atomicResolve(
+    submission: SocialAuthSubmission,
+    auditEntry: Omit<AuthPostAuditLog, 'id'>,
+    requiredCurrentStatus: AuthPostStatus = AuthPostStatus.PENDING
+  ): boolean {
+    let applied = false;
+    const run = this.db.transaction(() => {
+      const current = this.getSubmission(submission.id);
+      if (!current || current.status !== requiredCurrentStatus) return;
+      this.updateSubmission(submission);
+      this.addAuditLog(auditEntry);
+      applied = true;
+    });
+    run();
+    return applied;
+  }
+
+  /** Returns true if a reminder for this threshold has already been sent for the post. */
+  hasNotifiedThreshold(postId: string, thresholdMinutes: number): boolean {
+    const row = this.db.prepare(
+      'SELECT 1 FROM auth_post_threshold_notifications WHERE post_id = ? AND threshold_minutes = ?'
+    ).get(postId, thresholdMinutes);
+    return !!row;
+  }
+
+  /** Mark a reminder threshold as sent so it is not re-sent after a restart. */
+  setNotifiedThreshold(postId: string, thresholdMinutes: number): void {
+    this.db.prepare(
+      'INSERT OR IGNORE INTO auth_post_threshold_notifications (post_id, threshold_minutes, notified_at) VALUES (?, ?, ?)'
+    ).run(postId, thresholdMinutes, Date.now());
   }
 
   addVote(vote: AuthPostVote): void {
@@ -434,11 +513,13 @@ export class SocialAuthDatabaseManager {
       timerCalculation: JSON.parse(row.timer_calculation) as TimerCalculation,
       outcome: row.outcome,
       outcomeReason: row.outcome_reason,
-      fedicaPostId: row.fedica_post_id || undefined,
-      fedicaError: row.fedica_error || undefined,
+      fedicaPostId: row.fedica_post_id ?? undefined,
+      fedicaError: row.fedica_error ?? undefined,
+      scheduledAt: row.scheduled_at ? new Date(row.scheduled_at) : undefined,
+      fedicaScheduledAt: row.fedica_scheduled_at ? new Date(row.fedica_scheduled_at) : undefined,
       channelId: row.channel_id,
       messageId: row.message_id,
-      threadId: row.thread_id
+      threadId: row.thread_id ?? undefined
     };
   }
 }
