@@ -38,6 +38,7 @@ import {
 import { publishToFedica, parseScheduleFromText } from "./publish";
 import { assessRisk } from "./llm-pipeline";
 import { resolveEffectiveSensitivity, resolvePublishMode } from "./calculator";
+import { refreshQueueMessage } from "./queue";
 import { errorEmbed } from "@/utils/responses";
 
 const GANTRY_COLORS: Record<GantryState, number> = {
@@ -51,36 +52,50 @@ export default async function handleSocialAuthInteraction(
   interaction: Interaction,
   client: BotClient
 ) {
+  // Read-only interactions — no queue refresh needed.
+  if (interaction.isButton() && interaction.customId.startsWith("authpost_info_")) {
+    return handleAuthPostInfo(interaction, client);
+  }
+  if (interaction.isButton() && interaction.customId.startsWith("authpost_edit_open_")) {
+    return handleAuthPostEditOpen(interaction, client);
+  }
+
+  // State-changing interactions — refresh the standing queue message afterwards.
+  let handled = false;
+
   if (interaction.isModalSubmit()) {
     if (interaction.customId.startsWith("authpost_submit_")) {
-      return handleAuthPostModalSubmit(interaction, client);
-    }
-    if (interaction.customId.startsWith("authpost_edit_")) {
-      return handleAuthPostEditSubmit(interaction, client);
+      await handleAuthPostModalSubmit(interaction, client);
+      handled = true;
+    } else if (interaction.customId.startsWith("authpost_edit_")) {
+      await handleAuthPostEditSubmit(interaction, client);
+      handled = true;
     }
   }
 
-  if (interaction.isButton()) {
+  if (!handled && interaction.isButton()) {
     const customId = interaction.customId;
-
     if (customId.startsWith("authpost_approve_")) {
-      return handleAuthPostApprove(interaction, client);
+      await handleAuthPostApprove(interaction, client);
     } else if (customId.startsWith("authpost_object_")) {
-      return handleAuthPostObject(interaction, client);
-    } else if (customId.startsWith("authpost_edit_open_")) {
-      return handleAuthPostEditOpen(interaction, client);
-    } else if (customId.startsWith("authpost_info_")) {
-      return handleAuthPostInfo(interaction, client);
+      await handleAuthPostObject(interaction, client);
     } else if (customId.startsWith("authpost_publish_")) {
-      return handleAuthPostManualPublish(interaction, client);
+      await handleAuthPostManualPublish(interaction, client);
     } else if (customId.startsWith("authpost_withdraw_")) {
-      return handleAuthPostWithdraw(interaction, client);
+      await handleAuthPostWithdraw(interaction, client);
     } else if (customId.startsWith("authpost_request_edit_")) {
-      return handleAuthPostRequestEdit(interaction, client);
+      await handleAuthPostRequestEdit(interaction, client);
     } else if (customId.startsWith("authpost_cancel_hold_")) {
-      return handleAuthPostCancelHold(interaction, client);
+      await handleAuthPostCancelHold(interaction, client);
+    } else {
+      return;
     }
   }
+
+  // Fire-and-forget — queue refresh must not block or throw to the caller.
+  void refreshQueueMessage(client).catch(err =>
+    console.error('[Queue] Post-interaction refresh failed:', err)
+  );
 }
 
 /**

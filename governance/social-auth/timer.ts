@@ -12,6 +12,7 @@ import { EmbedBuilder } from "discord.js";
 import { SocialAuthDatabaseManager } from "./database";
 import { updateSubmissionTimer, getTimeRemaining, isHoldPublishDue } from "./calculator";
 import { publishToFedica } from "./publish";
+import { initQueueMessage, refreshQueueMessage } from "./queue";
 import { AuthPostStatus, GantryState, TIMER_CONSTANTS } from "./types";
 
 const CHECK_INTERVAL_MS = TIMER_CONSTANTS.UPDATE_INTERVAL_MS;
@@ -19,7 +20,7 @@ const CHECK_INTERVAL_MS = TIMER_CONSTANTS.UPDATE_INTERVAL_MS;
 export function startSocialAuthTimerService(client: BotClient) {
   console.log("[Social Auth Timer Service] Started background timer service");
 
-  void safeCheck(client);
+  void initQueueMessage(client).then(() => safeCheck(client));
   setInterval(() => {
     void safeCheck(client);
   }, CHECK_INTERVAL_MS);
@@ -28,6 +29,7 @@ export function startSocialAuthTimerService(client: BotClient) {
 async function safeCheck(client: BotClient) {
   try {
     await checkPendingSubmissions(client);
+    await refreshQueueMessage(client);
   } catch (error) {
     console.error("[Social Auth Timer Service] Check failed:", error);
   }

@@ -144,6 +144,13 @@ export class SocialAuthDatabaseManager {
       );
     `);
 
+    this.db.exec(`
+      CREATE TABLE IF NOT EXISTS bot_config (
+        key TEXT PRIMARY KEY,
+        value TEXT NOT NULL
+      );
+    `);
+
     // Safe schema migrations: add columns introduced after initial deploy.
     for (const sql of [
       'ALTER TABLE auth_post_submissions ADD COLUMN scheduled_at INTEGER',
@@ -269,6 +276,15 @@ export class SocialAuthDatabaseManager {
     const row = stmt.get(id) as any;
     if (!row) return null;
     return this.rowToSubmission(row);
+  }
+
+  getConfigValue(key: string): string | null {
+    const row = this.db.prepare('SELECT value FROM bot_config WHERE key = ?').get(key) as { value: string } | undefined;
+    return row?.value ?? null;
+  }
+
+  setConfigValue(key: string, value: string): void {
+    this.db.prepare('INSERT OR REPLACE INTO bot_config (key, value) VALUES (?, ?)').run(key, value);
   }
 
   getSubmissionsInState(status: AuthPostStatus): SocialAuthSubmission[] {

@@ -1,5 +1,7 @@
-import { describe, it, expect } from 'vitest';
-import { formatQueueEntry, groupSubmissionsByStatus } from './queue';
+import { describe, it, expect, beforeEach } from 'vitest';
+import Database from 'better-sqlite3';
+import { formatQueueEntry, groupSubmissionsByStatus, buildQueueEmbed } from './queue';
+import { SocialAuthDatabaseManager } from './database';
 import { AuthPostStatus, Sensitivity, SocialAuthSubmission, GantryState } from './types';
 
 function makeSubmission(overrides: Partial<SocialAuthSubmission> = {}): SocialAuthSubmission {
@@ -39,6 +41,54 @@ function makeSubmission(overrides: Partial<SocialAuthSubmission> = {}): SocialAu
   };
   return { ...base, ...overrides };
 }
+
+let db: SocialAuthDatabaseManager;
+beforeEach(() => {
+  const raw = new Database(':memory:');
+  SocialAuthDatabaseManager.setGlobalDatabase(raw);
+  db = new SocialAuthDatabaseManager(raw);
+});
+
+describe('buildQueueEmbed', () => {
+  it('returns an object with a data property (EmbedBuilder shape)', () => {
+    const embed = buildQueueEmbed([]);
+    expect(embed).toHaveProperty('data');
+  });
+
+  it('empty queue embed has a clear-queue description', () => {
+    const embed = buildQueueEmbed([]);
+    expect(JSON.stringify(embed.data)).toContain('clear');
+  });
+
+  it('non-empty queue embed mentions submission id', () => {
+    const embed = buildQueueEmbed([makeSubmission()]);
+    expect(JSON.stringify(embed.data)).toContain('AUTH-2026-001');
+  });
+});
+
+describe('bot_config DB methods', () => {
+  it('getConfigValue returns null for unknown key', () => {
+    expect(db.getConfigValue('queue_message_id')).toBeNull();
+  });
+
+  it('setConfigValue + getConfigValue round-trips', () => {
+    db.setConfigValue('queue_message_id', 'msg-123');
+    expect(db.getConfigValue('queue_message_id')).toBe('msg-123');
+  });
+
+  it('setConfigValue overwrites existing value', () => {
+    db.setConfigValue('queue_message_id', 'msg-123');
+    db.setConfigValue('queue_message_id', 'msg-456');
+    expect(db.getConfigValue('queue_message_id')).toBe('msg-456');
+  });
+
+  it('different keys are independent', () => {
+    db.setConfigValue('queue_message_id', 'msg-123');
+    db.setConfigValue('queue_channel_id', 'ch-999');
+    expect(db.getConfigValue('queue_message_id')).toBe('msg-123');
+    expect(db.getConfigValue('queue_channel_id')).toBe('ch-999');
+  });
+});
 
 describe('formatQueueEntry', () => {
   it('includes the submission id', () => {
