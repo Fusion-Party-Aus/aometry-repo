@@ -29,6 +29,8 @@
  */
 
 import { Destination, PostContent, Sensitivity } from './types';
+import { composePostText } from './publish';
+import { checkAiWritingStyle } from './ai-writing-style';
 
 export interface LlmPipelineConfig {
   apiKey: string;
@@ -87,11 +89,15 @@ export async function assessRisk(
 ): Promise<RiskAssessmentResult> {
   console.log(`[LLM Pipeline] assessRisk() called — stub, returning neutral assessment`);
 
+  // The AI-writing-style check is free, deterministic, and local (no LLM_API_KEY needed),
+  // so it runs unconditionally — including in stub mode — unlike the rest of this pipeline.
+  const styleFlags = checkAiWritingStyle(composePostText(request.content));
+
   return {
     verdict: 'agree',
     suggestedSensitivity: request.submitterSensitivity,
     confidence: 0,
-    flags: [],
+    flags: styleFlags,
     summary: `[AI assessment unavailable — LLM_API_KEY not configured]`,
     generatedBy: 'stub',
     promptTokens: 0,

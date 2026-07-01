@@ -41,9 +41,10 @@ Key files:
 - `publish.ts` — Fedica integration; `composePostText` + `validatePostForDestinations` (Twitter/X 280-char limit, image warning for Facebook/Instagram). `nextWeekdayAt9amAest` uses `Australia/Sydney` via `Intl` (DST-aware). Set `FEDICA_API_KEY` to enable live calls; stub mode active without it.
 - `database.ts` — `atomicVoteAndUpdate`, `atomicResolve`, `getSubmissionsInState`, `getConfigValue`/`setConfigValue` (stores standing queue message ID)
 - `interaction.ts` — button/modal handlers: vote, edit (direct), send-back → IN_EDIT → resubmit, manual publish, withdraw, cancel-hold, retry publish
-- `timer.ts` — gantry notifications, hold auto-publish (APPROVED + elapsed `scheduledAt`), calls `refreshQueueMessage` each tick
+- `timer.ts` — gantry notifications, hold auto-publish (APPROVED + elapsed `holdUntil`, distinct from the Fedica `scheduledAt`), atomically claims `PUBLISHING` before calling Fedica, calls `refreshQueueMessage` each tick
 - `queue.ts` — `buildQueueEmbed`, `initQueueMessage`, `refreshQueueMessage` for the standing `#auth-queue` channel message
-- `llm-pipeline.ts` — **STUB**: AI risk assessment (agree/escalate/downgrade). Wire with `LLM_API_KEY` + `LLM_MODEL` (Anthropic) once available. Escalation is binding; downgrade is advisory.
+- `llm-pipeline.ts` — **STUB**: AI risk assessment (agree/escalate/downgrade). Wire with `LLM_API_KEY` + `LLM_MODEL` (Anthropic) once available. Escalation is binding; downgrade is advisory. Also runs `checkAiWritingStyle` (free, local, no API key needed) unconditionally and folds its result into `flags` as an advisory `info`-severity signal.
+- `ai-writing-style.ts` — wraps the vendored [avoid-ai-writing](https://github.com/conorbronsdon/avoid-ai-writing) detector (`vendor/ai-writing-detector.js`, MIT) to flag AI-sounding phrasing; advisory only, never critical, never drives escalation
 - `submit.ts` — `/authpost` slash command with autocomplete for destinations and policy tags
 - `types.ts` — all types, `SENSITIVITY_CONFIG`, `TIMER_CONSTANTS`, `DESTINATIONS`, `POLICY_TAGS`, `HASHTAGS_CORE/BRANCH`
 
