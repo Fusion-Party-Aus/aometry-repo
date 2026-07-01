@@ -13,6 +13,7 @@ export enum AuthPostStatus {
   PENDING = 'pending',           // Active, awaiting votes/timer expiration
   IN_EDIT = 'in_edit',           // Sent back for edits, paused pending resubmission
   APPROVED = 'approved',         // Threshold met - queued for Fedica publish
+  PUBLISHING = 'publishing',     // Publish claimed by a worker - interim guard against double-publish
   PUBLISHED = 'published',       // Successfully pushed to Fedica
   PUBLISH_FAILED = 'publish_failed', // Fedica publish attempt failed
   BLOCKED = 'blocked',           // Blocked via objection gantry expiration or instant dismissal
@@ -197,6 +198,8 @@ export interface SocialAuthSubmission {
   fedicaError?: string;
   scheduledAt?: Date;         // Intended Fedica post time (defaults to next weekday 9am AEST)
   fedicaScheduledAt?: Date;   // Confirmed schedule time returned by Fedica API
+  holdUntil?: Date;           // Auto-publish trigger for the "hold" mode window; distinct from
+                              // scheduledAt so the 15-min hold never overwrites the Fedica post time
 
   // AI risk assessment (populated on submission if LLM_API_KEY is configured)
   aiRiskVerdict?: 'agree' | 'escalate' | 'downgrade';

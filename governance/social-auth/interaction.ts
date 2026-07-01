@@ -48,6 +48,26 @@ const GANTRY_COLORS: Record<GantryState, number> = {
   [GantryState.OBJECTION]: 0xff4444,
 };
 
+// Statuses that represent a finished submission — no further state-changing action allowed.
+const TERMINAL_STATUSES: AuthPostStatus[] = [
+  AuthPostStatus.PUBLISHED,
+  AuthPostStatus.BLOCKED,
+  AuthPostStatus.WITHDRAWN,
+];
+
+/**
+ * True when the interacting user is allowed to drive privileged actions (publish,
+ * send-back) on a submission: an approver-pool member, the original submitter, or a
+ * moderator with ManageMessages. Mirrors the voting eligibility rule in calculator.addVote.
+ */
+function isAuthorisedApprover(interaction: ButtonInteraction, submission: SocialAuthSubmission): boolean {
+  return (
+    interaction.user.id === submission.submitterId ||
+    submission.approverPool.memberIds.includes(interaction.user.id) ||
+    !!interaction.memberPermissions?.has('ManageMessages')
+  );
+}
+
 export default async function handleSocialAuthInteraction(
   interaction: Interaction,
   client: BotClient
@@ -177,7 +197,9 @@ async function handleAuthPostModalSubmit(
       : sensitivity;
     const effectiveConfig = SENSITIVITY_CONFIG[effectiveSensitivity];
 
-    // Persist AI assessment fields onto the submission.
+    // Persist AI assessment fields onto the submission. When the AI escalates we carry
+    // the effective sensitivity AND requiredApprovals forward so the publish-mode decision
+    // in resolveApproved (which reads submission.sensitivity from the DB) stays consistent.
     const submissionWithRisk = {
       ...submission,
       ...(riskAnnotation ? {
@@ -185,6 +207,7 @@ async function handleAuthPostModalSubmit(
         aiSuggestedSensitivity: riskAnnotation.suggestedSensitivity,
         aiRiskSummary: riskAnnotation.summary,
         aiRiskFlags: riskAnnotation.flags,
+        sensitivity: effectiveSensitivity,
         requiredApprovals: effectiveConfig.requiredApprovals,
       } : {}),
     };
@@ -380,7 +403,8 @@ async function resolveApproved(
       new ButtonBuilder().setCustomId(`authpost_cancel_hold_${approved.id}`).setLabel('🚫 Cancel Hold').setStyle(ButtonStyle.Danger),
     );
     if (message) await message.edit({ embeds: [holdEmbed], components: [cancelButton] });
-    db.updateSubmission({ ...approved, scheduledAt: autoPublishAt });
+    // holdUntil drives the timer auto-publish; scheduledAt (Fedica post time) is left intact.
+    db.updateSubmission({ ...approved, holdUntil: autoPublishAt });
     return interaction.editReply({
       embeds: [{ title: '✅ Approved', description: `**${approved.id}** approved. Auto-publishes in ${holdMinutes} minutes unless cancelled.`, color: 0xffa500 }],
     });
@@ -691,6 +715,12 @@ async function handleAuthPostManualPublish(interaction: ButtonInteraction, _clie
       return interaction.editReply({ embeds: [errorEmbed("Invalid State", `Post is ${submission.status}, not approved`)] });
     }
 
+    // Only an approver-pool member, the submitter, or a moderator may trigger a publish —
+    // otherwise the authpost_publish_* button could be replayed by any user.
+    if (!isAuthorisedApprover(interaction, submission)) {
+      return interaction.editReply({ embeds: [errorEmbed("Unauthorized", "Only an approver, the submitter, or a moderator can publish this post")] });
+    }
+
     const message = await getInteractionMessage(interaction, submission.messageId);
     const pendingEmbed = new EmbedBuilder()
       .setTitle(`📤 ${submission.id} — Publishing to Fedica`)
@@ -733,6 +763,12 @@ async function handleAuthPostWithdraw(interaction: ButtonInteraction, _client: B
     const submission = db.getSubmission(postId);
     if (!submission) return interaction.editReply({ embeds: [errorEmbed("Not Found", "Auth post not found")] });
 
+    // Terminal states cannot be withdrawn — a stale button must not un-publish or
+    // re-open an already-finished submission.
+    if (TERMINAL_STATUSES.includes(submission.status)) {
+      return interaction.editReply({ embeds: [errorEmbed("Already Closed", `**${submission.id}** is ${submission.status} and can no longer be withdrawn.`)] });
+    }
+
     const canWithdraw = interaction.user.id === submission.submitterId ||
       interaction.memberPermissions?.has('ManageMessages');
     if (!canWithdraw) {
@@ -767,6 +803,12 @@ async function handleAuthPostRequestEdit(interaction: ButtonInteraction, _client
     if (!submission) return interaction.editReply({ embeds: [errorEmbed("Not Found", "Auth post not found")] });
     if (submission.status !== AuthPostStatus.PENDING) {
       return interaction.editReply({ embeds: [errorEmbed("Invalid State", `Post is ${submission.status}, not pending`)] });
+    }
+
+    // Sending a post back to IN_EDIT interrupts the approval path — restrict it to
+    // approver-pool members, the submitter, or a moderator.
+    if (!isAuthorisedApprover(interaction, submission)) {
+      return interaction.editReply({ embeds: [errorEmbed("Unauthorized", "Only an approver, the submitter, or a moderator can send this post back for edits")] });
     }
 
     db.updateSubmission({ ...submission, status: AuthPostStatus.IN_EDIT });
@@ -809,7 +851,7 @@ async function handleAuthPostRequestEdit(interaction: ButtonInteraction, _client
 
 /**
  * Cancel the 15-minute hold window and revert to manual-publish mode.
- * Keeps the APPROVED status but clears scheduledAt so the timer service won't auto-fire.
+ * Keeps the APPROVED status but clears holdUntil so the timer service won't auto-fire.
  */
 async function handleAuthPostCancelHold(interaction: ButtonInteraction, _client: BotClient) {
   try {
@@ -828,8 +870,8 @@ async function handleAuthPostCancelHold(interaction: ButtonInteraction, _client:
       return interaction.editReply({ embeds: [errorEmbed("Unauthorized", "Only the submitter or a moderator can cancel the hold")] });
     }
 
-    // Clear scheduledAt so the timer service won't auto-publish
-    db.updateSubmission({ ...submission, scheduledAt: undefined });
+    // Clear holdUntil so the timer service won't auto-publish; the Fedica scheduledAt stays.
+    db.updateSubmission({ ...submission, holdUntil: undefined });
     db.addAuditLog({
       postId,
       eventType: 'timer_update',

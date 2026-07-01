@@ -50,6 +50,7 @@ export function groupSubmissionsByStatus(submissions: SocialAuthSubmission[]): Q
     [AuthPostStatus.PENDING]: [],
     [AuthPostStatus.IN_EDIT]: [],
     [AuthPostStatus.APPROVED]: [],
+    [AuthPostStatus.PUBLISHING]: [],
     [AuthPostStatus.PUBLISHED]: [],
     [AuthPostStatus.PUBLISH_FAILED]: [],
     [AuthPostStatus.BLOCKED]: [],
@@ -67,9 +68,37 @@ export function groupSubmissionsByStatus(submissions: SocialAuthSubmission[]): Q
   return groups;
 }
 
+// Discord hard limits on embed fields.
+const FIELD_VALUE_LIMIT = 1024;
+const MAX_FIELDS = 25;
+
+/**
+ * Split an ordered list of formatted lines into field-value chunks that each stay
+ * within Discord's 1024-char limit, without ever cutting a line in half.
+ */
+function chunkLines(lines: string[]): string[] {
+  const chunks: string[] = [];
+  let current = '';
+  for (const line of lines) {
+    const candidate = current ? `${current}\n${line}` : line;
+    if (candidate.length > FIELD_VALUE_LIMIT && current) {
+      chunks.push(current);
+      current = line;
+    } else {
+      current = candidate;
+    }
+  }
+  if (current) chunks.push(current);
+  return chunks;
+}
+
 /**
  * Build the queue EmbedBuilder from a list of active submissions.
  * Pure function — no Discord side-effects, fully testable.
+ *
+ * Oversized sections are split across multiple continuation fields rather than
+ * truncated mid-entry; if the whole embed would exceed Discord's 25-field cap the
+ * remainder is summarised with an explicit "+N more" overflow indicator.
  */
 export function buildQueueEmbed(submissions: SocialAuthSubmission[]): EmbedBuilder {
   const embed = new EmbedBuilder()
@@ -78,20 +107,32 @@ export function buildQueueEmbed(submissions: SocialAuthSubmission[]): EmbedBuild
     .setTimestamp();
 
   const groups = groupSubmissionsByStatus(submissions);
-  let hasAny = false;
+  const fields: { name: string; value: string; inline: boolean }[] = [];
+  let overflow = 0;
 
   for (const { label, status, emoji } of SECTIONS) {
     const items = groups[status];
     if (items.length === 0) continue;
-    hasAny = true;
-    embed.addFields({
-      name: `${emoji} ${label} (${items.length})`,
-      value: items.map(formatQueueEntry).join('\n').substring(0, 1024),
-      inline: false,
+
+    const chunks = chunkLines(items.map(formatQueueEntry));
+    chunks.forEach((chunk, idx) => {
+      const name = idx === 0
+        ? `${emoji} ${label} (${items.length})`
+        : `${emoji} ${label} (cont.)`;
+      fields.push({ name, value: chunk, inline: false });
     });
   }
 
-  if (!hasAny) {
+  // Reserve one field slot for the overflow marker when we run past Discord's cap.
+  if (fields.length > MAX_FIELDS) {
+    const kept = fields.slice(0, MAX_FIELDS - 1);
+    const dropped = fields.slice(MAX_FIELDS - 1);
+    overflow = dropped.reduce((n, f) => n + f.value.split('\n').length, 0);
+    kept.push({ name: '…', value: `+${overflow} more not shown`, inline: false });
+    embed.addFields(...kept);
+  } else if (fields.length > 0) {
+    embed.addFields(...fields);
+  } else {
     embed.setDescription('✅ Queue is clear — no active submissions.');
   }
 

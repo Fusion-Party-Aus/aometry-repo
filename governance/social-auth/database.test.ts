@@ -209,3 +209,71 @@ describe('getSubmissionsInState', () => {
     expect(db.getSubmissionsInState(AuthPostStatus.PUBLISHED)).toHaveLength(0);
   });
 });
+
+describe('updateSubmission — durable escalation & hold fields', () => {
+  it('persists a separate holdUntil distinct from the Fedica scheduledAt', () => {
+    const sub = db.createSubmission(makeRequest(), 2, 240);
+    const scheduledAt = new Date('2026-07-05T23:00:00Z'); // intended Fedica post time
+    const holdUntil = new Date('2026-07-01T09:15:00Z');    // 15-min auto-publish trigger
+    db.updateSubmission({ ...sub, status: AuthPostStatus.APPROVED, scheduledAt, holdUntil });
+
+    const fetched = db.getSubmission(sub.id)!;
+    expect(fetched.scheduledAt?.toISOString()).toBe(scheduledAt.toISOString());
+    expect(fetched.holdUntil?.toISOString()).toBe(holdUntil.toISOString());
+  });
+
+  it('clearing holdUntil leaves scheduledAt untouched (cancel-hold path)', () => {
+    const sub = db.createSubmission(makeRequest(), 2, 240);
+    const scheduledAt = new Date('2026-07-05T23:00:00Z');
+    db.updateSubmission({ ...sub, status: AuthPostStatus.APPROVED, scheduledAt, holdUntil: new Date() });
+    db.updateSubmission({ ...db.getSubmission(sub.id)!, holdUntil: undefined });
+
+    const fetched = db.getSubmission(sub.id)!;
+    expect(fetched.holdUntil).toBeUndefined();
+    expect(fetched.scheduledAt?.toISOString()).toBe(scheduledAt.toISOString());
+  });
+
+  it('persists an escalated sensitivity and required-approval count', () => {
+    const sub = db.createSubmission(makeRequest({ sensitivity: Sensitivity.LOW }), 1, 240);
+    db.updateSubmission({ ...sub, sensitivity: Sensitivity.HIGH, requiredApprovals: 2 });
+
+    const fetched = db.getSubmission(sub.id)!;
+    expect(fetched.sensitivity).toBe(Sensitivity.HIGH);
+    expect(fetched.requiredApprovals).toBe(2);
+  });
+
+  it('persists AI risk annotation fields across a reload', () => {
+    const sub = db.createSubmission(makeRequest(), 2, 240);
+    db.updateSubmission({
+      ...sub,
+      aiRiskVerdict: 'escalate',
+      aiSuggestedSensitivity: Sensitivity.HIGH,
+      aiRiskSummary: 'Potentially defamatory claim',
+      aiRiskFlags: [{ severity: 'critical', reason: 'unverified allegation', policyReference: 'EthicalGovernance' }],
+    });
+
+    const fetched = db.getSubmission(sub.id)!;
+    expect(fetched.aiRiskVerdict).toBe('escalate');
+    expect(fetched.aiSuggestedSensitivity).toBe(Sensitivity.HIGH);
+    expect(fetched.aiRiskSummary).toBe('Potentially defamatory claim');
+    expect(fetched.aiRiskFlags).toEqual([
+      { severity: 'critical', reason: 'unverified allegation', policyReference: 'EthicalGovernance' },
+    ]);
+  });
+});
+
+describe('atomicResolve — publish claim guards double-publish', () => {
+  it('only the first APPROVED→PUBLISHING claim succeeds', () => {
+    const sub = db.createSubmission(makeRequest(), 2, 240);
+    db.updateSubmission({ ...sub, status: AuthPostStatus.APPROVED });
+    const approved = db.getSubmission(sub.id)!;
+
+    const audit = { postId: sub.id, eventType: 'publish_attempt' as const, timestamp: new Date(), details: {} };
+    const first = db.atomicResolve({ ...approved, status: AuthPostStatus.PUBLISHING }, audit, AuthPostStatus.APPROVED);
+    const second = db.atomicResolve({ ...approved, status: AuthPostStatus.PUBLISHING }, audit, AuthPostStatus.APPROVED);
+
+    expect(first).toBe(true);
+    expect(second).toBe(false);
+    expect(db.getSubmission(sub.id)!.status).toBe(AuthPostStatus.PUBLISHING);
+  });
+});

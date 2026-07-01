@@ -1,5 +1,6 @@
 import { describe, it, expect } from 'vitest';
 import { assessRisk, RiskAssessmentRequest } from './llm-pipeline';
+import { resolveEffectiveSensitivity } from './calculator';
 import { Sensitivity, PostContent, Destination } from './types';
 
 const BASE_CONTENT: PostContent = {
@@ -98,18 +99,8 @@ describe('assessRisk — sensitivity escalation logic (for live implementation)'
 });
 
 describe('resolveEffectiveSensitivity — escalation takes precedence', () => {
-  // Pure function that will live in calculator.ts or interaction.ts.
-  // Defined inline here to test the rule: AI escalation is binding, downgrade is advisory.
-  function resolveEffectiveSensitivity(
-    submitter: Sensitivity,
-    aiSuggested: Sensitivity,
-    verdict: 'agree' | 'escalate' | 'downgrade'
-  ): Sensitivity {
-    if (verdict === 'escalate') return aiSuggested;   // AI escalation is binding
-    if (verdict === 'downgrade') return submitter;    // Downgrade is advisory — human keeps control
-    return submitter;                                 // agree: use what submitter said
-  }
-
+  // Tests the production implementation from calculator.ts directly so regressions
+  // in the real rule (AI escalation binding, downgrade advisory) are caught here.
   const { LOW, MEDIUM, HIGH } = Sensitivity;
 
   it('agree → uses submitter sensitivity', () => {

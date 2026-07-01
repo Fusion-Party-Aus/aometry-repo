@@ -64,6 +64,30 @@ describe('buildQueueEmbed', () => {
     const embed = buildQueueEmbed([makeSubmission()]);
     expect(JSON.stringify(embed.data)).toContain('AUTH-2026-001');
   });
+
+  it('never emits a field value longer than the Discord 1024-char limit', () => {
+    // 60 pending entries far exceed a single 1024-char field.
+    const many = Array.from({ length: 60 }, (_, i) =>
+      makeSubmission({ id: `AUTH-2026-${String(i + 1).padStart(3, '0')}` })
+    );
+    const embed = buildQueueEmbed(many);
+    for (const field of embed.data.fields ?? []) {
+      expect(field.value.length).toBeLessThanOrEqual(1024);
+    }
+  });
+
+  it('does not silently drop entries mid-list — accounts for every submission', () => {
+    const many = Array.from({ length: 40 }, (_, i) =>
+      makeSubmission({ id: `AUTH-2026-${String(i + 1).padStart(3, '0')}` })
+    );
+    const embed = buildQueueEmbed(many);
+    const rendered = JSON.stringify(embed.data);
+    // Either every id is shown across the split fields, or an explicit overflow marker
+    // reports how many were omitted — never a blind mid-entry truncation.
+    const shownCount = many.filter(s => rendered.includes(s.id)).length;
+    const hasOverflowMarker = /\+\d+ more/.test(rendered);
+    expect(shownCount === many.length || hasOverflowMarker).toBe(true);
+  });
 });
 
 describe('bot_config DB methods', () => {

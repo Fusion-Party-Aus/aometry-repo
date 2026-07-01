@@ -33,16 +33,26 @@ const PLATFORM_MAP: Partial<Record<Destination, string>> = {
 
 const SYDNEY_TZ = 'Australia/Sydney';
 
+const SYDNEY_WALL_FMT = new Intl.DateTimeFormat('en-AU', {
+  timeZone: SYDNEY_TZ,
+  year: 'numeric', month: '2-digit', day: '2-digit',
+  hour: '2-digit', minute: '2-digit', second: '2-digit', hour12: false,
+});
+
+/** Decompose a UTC timestamp into its Sydney wall-clock parts (handles AEST/AEDT). */
+function sydneyWallParts(utcMs: number): { year: number; month: number; day: number; hour: number; minute: number; second: number } {
+  const parts = SYDNEY_WALL_FMT.formatToParts(new Date(utcMs));
+  const get = (t: string) => parseInt(parts.find(p => p.type === t)!.value, 10);
+  return {
+    year: get('year'), month: get('month'), day: get('day'),
+    hour: get('hour') % 24, minute: get('minute'), second: get('second'),
+  };
+}
+
 /** Return the Sydney UTC offset in milliseconds at a given UTC timestamp (handles AEST/AEDT). */
 function sydneyOffsetMs(utcMs: number): number {
-  const fmt = new Intl.DateTimeFormat('en-AU', {
-    timeZone: SYDNEY_TZ,
-    year: 'numeric', month: '2-digit', day: '2-digit',
-    hour: '2-digit', minute: '2-digit', second: '2-digit', hour12: false,
-  });
-  const parts = fmt.formatToParts(new Date(utcMs));
-  const get = (t: string) => parseInt(parts.find(p => p.type === t)!.value, 10);
-  const sydneyWall = Date.UTC(get('year'), get('month') - 1, get('day'), get('hour') % 24, get('minute'), get('second'));
+  const w = sydneyWallParts(utcMs);
+  const sydneyWall = Date.UTC(w.year, w.month - 1, w.day, w.hour, w.minute, w.second);
   return sydneyWall - utcMs;
 }
 
@@ -99,11 +109,40 @@ export function parseScheduleFromText(text: string): Date | null {
   const ms = Date.UTC(y, mo - 1, dy, hr, mn, 0) - offsetMs;
   if (isNaN(ms)) return null;
   const d = new Date(ms);
+
+  // Round-trip validation: reject impossible calendar dates (e.g. month 13, 30 Feb)
+  // and non-existent local times inside a DST spring-forward gap. Both would otherwise
+  // be silently normalised by Date.UTC into a different instant than the operator typed.
+  const w = sydneyWallParts(ms);
+  if (w.year !== y || w.month !== mo || w.day !== dy || w.hour !== hr || w.minute !== mn) {
+    return null;
+  }
+
   return d > new Date() ? d : null; // Discard past dates.
 }
 
 const TWITTER_CHAR_LIMIT = 280;
 const IMAGE_DESTINATIONS: Destination[] = ['Facebook', 'Instagram'];
+
+// Twitter/X wraps every link in a fixed-length t.co URL, so a URL always weighs 23
+// characters toward the limit regardless of its real length.
+const TWITTER_URL_WEIGHT = 23;
+const URL_PATTERN = /https?:\/\/[^\s]+/g;
+
+/**
+ * Weighted character length as counted by Twitter/X:
+ *  - each URL counts as 23 characters (t.co wrapping), not its literal length
+ *  - the remaining text is counted by Unicode code points, so surrogate-pair
+ *    emoji are not double-counted as two UTF-16 units
+ * This is an approximation of twitter-text weighting (it does not apply the CJK
+ * double-weight), but it removes the biggest source of false positives: long URLs.
+ */
+export function weightedTweetLength(text: string): number {
+  const urls = text.match(URL_PATTERN) ?? [];
+  const withoutUrls = text.replace(URL_PATTERN, '');
+  const textPoints = [...withoutUrls].length;
+  return textPoints + urls.length * TWITTER_URL_WEIGHT;
+}
 
 /**
  * Compose the final post text from content fields (same order Fedica receives it).
@@ -124,8 +163,11 @@ export function validatePostForDestinations(content: PostContent, destinations: 
   const errors: string[] = [];
   const text = composePostText(content);
 
-  if (destinations.includes('Twitter/X') && text.length > TWITTER_CHAR_LIMIT) {
-    errors.push(`Twitter/X limit is ${TWITTER_CHAR_LIMIT} characters — composed post is ${text.length} chars. Shorten the commentary or hashtags.`);
+  if (destinations.includes('Twitter/X')) {
+    const weighted = weightedTweetLength(text);
+    if (weighted > TWITTER_CHAR_LIMIT) {
+      errors.push(`Twitter/X limit is ${TWITTER_CHAR_LIMIT} characters — composed post is ${weighted} chars (links count as ${TWITTER_URL_WEIGHT}). Shorten the commentary or hashtags.`);
+    }
   }
 
   if (destinations.some(d => IMAGE_DESTINATIONS.includes(d))) {

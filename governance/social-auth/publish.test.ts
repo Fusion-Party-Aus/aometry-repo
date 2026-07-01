@@ -1,5 +1,5 @@
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
-import { parseScheduleFromText, nextWeekdayAt9amAest, buildFedicaPayload, composePostText, validatePostForDestinations } from './publish';
+import { parseScheduleFromText, nextWeekdayAt9amAest, buildFedicaPayload, composePostText, validatePostForDestinations, weightedTweetLength } from './publish';
 import { SocialAuthSubmission, AuthPostStatus, GantryState, VoteType, Sensitivity } from './types';
 
 const FIXED_NOW = new Date('2026-07-01T12:00:00Z'); // Wednesday 2026-07-01 12:00 UTC = 22:00 AEST
@@ -44,6 +44,46 @@ describe('parseScheduleFromText', () => {
 
   it('returns null for malformed datetime', () => {
     expect(parseScheduleFromText('schedule: not-a-date')).toBeNull();
+  });
+
+  it('returns null for an impossible calendar month', () => {
+    // Month 13 must not silently roll over into the next year.
+    expect(parseScheduleFromText('schedule: 2026-13-01T09:00')).toBeNull();
+  });
+
+  it('returns null for an impossible calendar day', () => {
+    // 30 February must not silently roll forward into March.
+    expect(parseScheduleFromText('schedule: 2026-02-30T09:00')).toBeNull();
+  });
+
+  it('returns null for a time inside the Sydney DST spring-forward gap', () => {
+    vi.setSystemTime(new Date('2026-09-01T00:00:00Z'));
+    // 2026-10-04 02:30 does not exist in Sydney — clocks jump 02:00 → 03:00.
+    expect(parseScheduleFromText('schedule: 2026-10-04T02:30')).toBeNull();
+  });
+});
+
+describe('weightedTweetLength', () => {
+  it('counts plain ASCII text by character', () => {
+    expect(weightedTweetLength('Hello world')).toBe(11);
+  });
+
+  it('weights a URL as 23 characters regardless of its real length', () => {
+    const url = 'https://example.com/a/very/long/path?with=query&params=here';
+    expect(url.length).toBeGreaterThan(23);
+    expect(weightedTweetLength(url)).toBe(23);
+  });
+
+  it('weights each URL at 23 and adds surrounding text', () => {
+    // "See: " (5) + url(23) + " and " (5) + url(23) = 56
+    const text = 'See: https://a.example.com/xxxxxxxxxxxxxxxxxxxx and https://b.example.com/yyyyyyyyyyyyyyyy';
+    expect(weightedTweetLength(text)).toBe(56);
+  });
+
+  it('counts a multi-code-unit emoji as a single code point pair, not UTF-16 units', () => {
+    // A short post with an emoji must not be over-counted into a false positive.
+    const text = 'Fusion 🎉';
+    expect(weightedTweetLength(text)).toBeLessThanOrEqual(text.length);
   });
 });
 
@@ -287,7 +327,22 @@ describe('validatePostForDestinations', () => {
   it('char limit error includes actual character count', () => {
     const errors = validatePostForDestinations(longContent, ['Twitter/X']);
     const charError = errors.find(e => e.includes('280'))!;
-    const composed = composePostText(longContent);
-    expect(charError).toContain(String(composed.length));
+    expect(charError).toContain(String(weightedTweetLength(composePostText(longContent))));
+  });
+
+  it('does not flag a URL-heavy but short post that only exceeds 280 by raw length', () => {
+    // Three long URLs raw-count well over 280, but weighted they are 23 each (~75 + text).
+    const urlHeavy = {
+      commentary: 'Read our three latest policy pieces:',
+      articleLink: 'https://www.fusionparty.org.au/climate_rescue_full_detailed_explainer_page',
+      policyLinks: [
+        'https://www.fusionparty.org.au/future_focused_full_detailed_explainer_page',
+        'https://www.fusionparty.org.au/education_for_life_full_detailed_explainer_page',
+      ],
+      hashtags: ['auspol'],
+    };
+    expect(composePostText(urlHeavy).length).toBeGreaterThan(280);
+    const errors = validatePostForDestinations(urlHeavy, ['Twitter/X']);
+    expect(errors.some(e => e.includes('280'))).toBe(false);
   });
 });

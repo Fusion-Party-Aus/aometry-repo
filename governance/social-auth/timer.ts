@@ -97,10 +97,21 @@ async function checkPendingSubmissions(client: BotClient) {
     }
   }
 
-  // Auto-publish APPROVED submissions in "hold" state once scheduledAt has passed.
+  // Auto-publish APPROVED submissions in "hold" state once the hold window has passed.
+  // holdUntil (not scheduledAt) is the auto-publish trigger, so manual-publish posts
+  // that carry a future Fedica scheduledAt are never fired by the timer.
   const holdSubmissions = db.getSubmissionsInState(AuthPostStatus.APPROVED);
   for (const submission of holdSubmissions) {
-    if (!isHoldPublishDue(submission.scheduledAt)) continue;
+    if (!isHoldPublishDue(submission.holdUntil)) continue;
+
+    // Atomically claim APPROVED → PUBLISHING before the external call so an overlapping
+    // tick (or a second bot instance) cannot publish the same submission twice.
+    const claimed = db.atomicResolve(
+      { ...submission, status: AuthPostStatus.PUBLISHING },
+      { postId: submission.id, eventType: 'publish_attempt', timestamp: new Date(), details: { trigger: 'hold_elapsed' } },
+      AuthPostStatus.APPROVED
+    );
+    if (!claimed) continue;
 
     const result = await publishToFedica(submission);
     const now = new Date();
@@ -113,13 +124,14 @@ async function checkPendingSubmissions(client: BotClient) {
         fedicaPostId: result.fedicaPostId,
         fedicaScheduledAt: result.fedicaScheduledAt,
         fedicaError: undefined,
+        holdUntil: undefined,
       };
       db.atomicResolve(published, {
         postId: submission.id,
         eventType: 'publish_success',
         timestamp: now,
         details: { fedicaPostId: result.fedicaPostId, fedicaScheduledAt: result.fedicaScheduledAt },
-      }, AuthPostStatus.APPROVED);
+      }, AuthPostStatus.PUBLISHING);
       await notifyChannel(
         client, submission.channelId, submission.messageId,
         `✅ **${submission.id}** has been published to Fedica (hold period elapsed).`
@@ -129,13 +141,14 @@ async function checkPendingSubmissions(client: BotClient) {
         ...submission,
         status: AuthPostStatus.PUBLISH_FAILED,
         fedicaError: result.error,
+        holdUntil: undefined,
       };
       db.atomicResolve(failed, {
         postId: submission.id,
         eventType: 'publish_failure',
         timestamp: now,
         details: { error: result.error },
-      }, AuthPostStatus.APPROVED);
+      }, AuthPostStatus.PUBLISHING);
       await notifyChannel(
         client, submission.channelId, submission.messageId,
         `❌ **${submission.id}** auto-publish failed: ${result.error}. Use the Publish button to retry.`

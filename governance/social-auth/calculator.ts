@@ -253,11 +253,13 @@ export function resolvePublishMode(
 }
 
 /**
- * Returns true when an APPROVED hold submission's scheduled publish time has arrived.
+ * Returns true when an APPROVED "hold" submission's auto-publish window has elapsed.
+ * Driven by holdUntil (not the Fedica scheduledAt): a manual-publish post with no
+ * holdUntil returns false and is never auto-fired by the timer service.
  */
-export function isHoldPublishDue(scheduledAt: Date | undefined): boolean {
-  if (!scheduledAt) return false;
-  return scheduledAt.getTime() <= Date.now();
+export function isHoldPublishDue(holdUntil: Date | undefined): boolean {
+  if (!holdUntil) return false;
+  return holdUntil.getTime() <= Date.now();
 }
 
 export function formatTimerDuration(minutes: number): string {
