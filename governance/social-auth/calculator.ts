@@ -252,6 +252,14 @@ export function resolvePublishMode(
   return hadObjections ? 'hold' : 'auto';
 }
 
+/**
+ * Returns true when an APPROVED hold submission's scheduled publish time has arrived.
+ */
+export function isHoldPublishDue(scheduledAt: Date | undefined): boolean {
+  if (!scheduledAt) return false;
+  return scheduledAt.getTime() <= Date.now();
+}
+
 export function formatTimerDuration(minutes: number): string {
   if (minutes < 60) return `${Math.round(minutes)}m`;
   if (minutes < 1440) {

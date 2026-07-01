@@ -271,6 +271,13 @@ export class SocialAuthDatabaseManager {
     return this.rowToSubmission(row);
   }
 
+  getSubmissionsInState(status: AuthPostStatus): SocialAuthSubmission[] {
+    const stmt = this.db.prepare(`
+      SELECT * FROM auth_post_submissions WHERE status = ? ORDER BY submitted_at DESC
+    `);
+    return (stmt.all(status) as any[]).map(row => this.rowToSubmission(row));
+  }
+
   getActiveSubmissions(): SocialAuthSubmission[] {
     const stmt = this.db.prepare(`
       SELECT * FROM auth_post_submissions

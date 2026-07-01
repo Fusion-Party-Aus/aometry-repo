@@ -181,3 +181,31 @@ describe('getSubmission', () => {
     expect(fetched.content.policyLinks).toEqual(['https://www.fusionparty.org.au/climate_rescue']);
   });
 });
+
+
+describe('getSubmissionsInState', () => {
+  it('returns only submissions with the requested status', () => {
+    const sub = db.createSubmission(makeRequest(), 2, 240);
+    // Newly created submissions are PENDING
+    const pending = db.getSubmissionsInState(AuthPostStatus.PENDING);
+    expect(pending.some(s => s.id === sub.id)).toBe(true);
+
+    const approved = db.getSubmissionsInState(AuthPostStatus.APPROVED);
+    expect(approved.some(s => s.id === sub.id)).toBe(false);
+  });
+
+  it('returns updated status after updateSubmission', () => {
+    const sub = db.createSubmission(makeRequest(), 2, 240);
+    db.updateSubmission({ ...sub, status: AuthPostStatus.APPROVED, resolvedAt: new Date() });
+
+    const approved = db.getSubmissionsInState(AuthPostStatus.APPROVED);
+    expect(approved.some(s => s.id === sub.id)).toBe(true);
+
+    const pending = db.getSubmissionsInState(AuthPostStatus.PENDING);
+    expect(pending.some(s => s.id === sub.id)).toBe(false);
+  });
+
+  it('returns empty array when no submissions match', () => {
+    expect(db.getSubmissionsInState(AuthPostStatus.PUBLISHED)).toHaveLength(0);
+  });
+});

@@ -10,6 +10,7 @@ import {
   updateSubmissionTimer,
   resolveEffectiveSensitivity,
   resolvePublishMode,
+  isHoldPublishDue,
 } from './calculator';
 import {
   SocialAuthSubmission,
@@ -395,5 +396,25 @@ describe('resolvePublishMode', () => {
   it('LOW + had objections → hold', () => {
     expect(resolvePublishMode(LOW, true, false)).toBe('hold');
     expect(resolvePublishMode(LOW, true, true)).toBe('hold');
+  });
+});
+
+describe('isHoldPublishDue', () => {
+  it('returns true when scheduledAt is in the past', () => {
+    const past = new Date(FIXED_NOW.getTime() - 1);
+    expect(isHoldPublishDue(past)).toBe(true);
+  });
+
+  it('returns true when scheduledAt equals now exactly', () => {
+    expect(isHoldPublishDue(new Date(FIXED_NOW.getTime()))).toBe(true);
+  });
+
+  it('returns false when scheduledAt is in the future', () => {
+    const future = new Date(FIXED_NOW.getTime() + 1000);
+    expect(isHoldPublishDue(future)).toBe(false);
+  });
+
+  it('returns false when scheduledAt is undefined', () => {
+    expect(isHoldPublishDue(undefined)).toBe(false);
   });
 });
