@@ -31,3 +31,23 @@ install:
 # Show test coverage summary
 coverage:
     npx vitest run --coverage
+
+# Bring the bot up locally (copy .env.example → .env first)
+up:
+    docker compose up
+
+# Bring the bot up in the background
+up-detached:
+    docker compose up -d
+
+# Stop the bot
+down:
+    docker compose down
+
+# Pull the latest host image
+pull:
+    docker compose pull
+
+# Tail bot logs
+logs:
+    docker compose logs -f bot
