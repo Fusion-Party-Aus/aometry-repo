@@ -153,11 +153,11 @@ async function handleAuthPostModalSubmit(
     const content: PostContent = { commentary, articleLink, policyLinks, hashtags };
 
     // Validate before creating anything in the DB.
-    const validationErrors = validatePostForDestinations(content, destinations);
-    const hardErrors = validationErrors.filter(e => e.includes('limit'));
+    const validationIssues = validatePostForDestinations(content, destinations);
+    const hardErrors = validationIssues.filter(e => e.severity === 'error');
     if (hardErrors.length > 0) {
       return interaction.editReply({
-        embeds: [errorEmbed('Validation Error', hardErrors.join('\n'))],
+        embeds: [errorEmbed('Validation Error', hardErrors.map(e => e.message).join('\n'))],
       });
     }
 
@@ -232,9 +232,9 @@ async function handleAuthPostModalSubmit(
       : '';
 
     // Image warnings are advisory (not hard errors) — surface them in the confirmation.
-    const imageWarnings = validationErrors.filter(e => !e.includes('limit'));
+    const imageWarnings = validationIssues.filter(e => e.severity === 'warning');
     const imageNote = imageWarnings.length > 0
-      ? `\n\n⚠️ **Image required:** ${imageWarnings.join(' ')}`
+      ? `\n\n⚠️ **Image required:** ${imageWarnings.map(e => e.message).join(' ')}`
       : '';
 
     return interaction.editReply({
