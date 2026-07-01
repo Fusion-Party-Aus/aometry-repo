@@ -68,6 +68,37 @@ export const SENSITIVITY_CONFIG: Record<Sensitivity, SensitivityConfig> = {
 export type Destination =
   | 'Facebook' | 'Twitter/X' | 'Instagram' | 'Mastodon' | 'LinkedIn' | 'Newsletter' | 'Other';
 
+export const DESTINATIONS: Destination[] = [
+  'Facebook', 'Twitter/X', 'Instagram', 'Mastodon', 'LinkedIn', 'Newsletter', 'Other'
+];
+
+/** Policy tag → URL map, mirrors TAGS_POLICY in auth-request-builder.html */
+export const POLICY_TAGS: { tag: string; url: string }[] = [
+  { tag: 'ClimateRescue',        url: 'https://www.fusionparty.org.au/climate_rescue' },
+  { tag: 'FutureFocused',        url: 'https://www.fusionparty.org.au/future_focused' },
+  { tag: 'EducationForLife',     url: 'https://www.fusionparty.org.au/education_for_life' },
+  { tag: 'EthicalGovernance',    url: 'https://www.fusionparty.org.au/ethical_governance' },
+  { tag: 'DrugReform',           url: 'https://www.fusionparty.org.au/policy_faq' },
+  { tag: 'FairSociety',          url: 'https://www.fusionparty.org.au/fair_inclusive_society' },
+  { tag: 'IndividualFreedoms',   url: 'https://www.fusionparty.org.au/individual_freedoms' },
+  { tag: 'UBI',                  url: 'https://www.fusionparty.org.au/fair_inclusive_society' },
+  { tag: 'EcologicalRestoration',url: 'https://www.fusionparty.org.au/ecological_restoration' },
+  { tag: 'DigitalLiberty',       url: 'https://www.fusionparty.org.au/civil_digital_liberties' },
+  { tag: 'SecularHumanism',      url: 'https://www.fusionparty.org.au/secular_humanism' },
+  { tag: 'FairForeignPolicy',    url: 'https://www.fusionparty.org.au/fair_foreign_policy' },
+  { tag: 'HousingAsAHome',       url: 'https://www.fusionparty.org.au/housing_as_a_home' },
+  { tag: 'AntiAgeing',           url: 'https://www.fusionparty.org.au/future_focused' },
+];
+
+/** Core hashtags always pre-selected, mirrors TAGS_CORE */
+export const HASHTAGS_CORE = ['auspol', 'fusionparty'];
+
+/** Branch/partner hashtags, mirrors TAGS_BRANCH */
+export const HASHTAGS_BRANCH = [
+  'ScienceParty', 'PirateParty', 'SecularParty',
+  'VotePlanet', 'ClimateJustice', 'AusProgressives', 'DemocracyFirst'
+];
+
 /**
  * Approver pool: who is allowed to vote (typically @authnational)
  */

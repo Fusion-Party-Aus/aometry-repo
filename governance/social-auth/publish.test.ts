@@ -55,7 +55,6 @@ describe('nextWeekdayAt9amAest', () => {
 
   it('falls on a weekday (Mon–Fri)', () => {
     const d = nextWeekdayAt9amAest();
-    const day = d.getUTCDay();
     // After converting back from AEST the UTC day may differ; check day of week in AEST
     const aestHour = ((d.getUTCHours() + 10) % 24);
     expect(aestHour).toBe(9);
@@ -133,6 +132,46 @@ describe('buildFedicaPayload', () => {
     expect(payload.text).toContain('See our policy here: https://policy.example.com');
     expect(payload.text).toContain('#auspol');
     expect(payload.text).toContain('#fusion');
+  });
+
+  it('omits article link when null', () => {
+    const payload = buildFedicaPayload(makeSubmission({
+      content: { commentary: 'Hello', articleLink: null, policyLinks: [], hashtags: [] },
+    }));
+    expect(payload.text).toBe('Hello');
+  });
+
+  it('omits policy links when empty', () => {
+    const payload = buildFedicaPayload(makeSubmission({
+      content: { commentary: 'Hello', articleLink: null, policyLinks: [], hashtags: [] },
+    }));
+    expect(payload.text).not.toContain('policy');
+  });
+
+  it('omits hashtags when empty', () => {
+    const payload = buildFedicaPayload(makeSubmission({
+      content: { commentary: 'Hello', articleLink: null, policyLinks: [], hashtags: [] },
+    }));
+    expect(payload.text).not.toContain('#');
+  });
+
+  it('passes through postId and destinations', () => {
+    const payload = buildFedicaPayload(makeSubmission());
+    expect(payload.postId).toBe('AUTH-2026-001');
+    expect(payload.destinations).toEqual(['Twitter/X', 'Facebook']);
+  });
+
+  it('multiple policy links each get prefix', () => {
+    const sub = makeSubmission({
+      content: {
+        commentary: 'Hi',
+        articleLink: null,
+        policyLinks: ['https://fusionparty.org.au/climate_rescue', 'https://fusionparty.org.au/future_focused'],
+        hashtags: [],
+      },
+    });
+    const payload = buildFedicaPayload(sub);
+    expect(payload.text.match(/See our policy here:/g)).toHaveLength(2);
   });
 
   it('sets imageRequired=true when Facebook or Instagram is a destination', () => {

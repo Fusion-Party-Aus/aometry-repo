@@ -10,6 +10,8 @@
  *
  * Stub mode: if FEDICA_API_KEY is not set, the function logs the payload and
  * returns a stub result so the rest of the pipeline works in development.
+ *
+ * TODO(fedica-integration): confirm real endpoint + request shape once credentials/docs arrive.
  */
 
 import { SocialAuthSubmission, FedicaPublishPayload, FedicaPublishResult, Destination } from './types';
