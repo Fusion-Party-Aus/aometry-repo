@@ -332,7 +332,6 @@ export class SocialAuthDatabaseManager {
         ai_risk_flags = @ai_risk_flags,
         message_id = @message_id,
         thread_id = @thread_id,
-        required_approvals = @required_approvals,
         updated_at = @updated_at
       WHERE id = @id
     `);
@@ -360,7 +359,6 @@ export class SocialAuthDatabaseManager {
       ai_risk_flags: submission.aiRiskFlags ? JSON.stringify(submission.aiRiskFlags) : null,
       message_id: submission.messageId,
       thread_id: submission.threadId ?? null,
-      required_approvals: submission.requiredApprovals,
       updated_at: Date.now()
     });
   }
