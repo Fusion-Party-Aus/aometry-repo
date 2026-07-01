@@ -533,6 +533,12 @@ async function handleAuthPostEditSubmit(interaction: ModalSubmitInteraction, _cl
     const submission = db.getSubmission(postId);
     if (!submission) return interaction.editReply({ embeds: [errorEmbed("Not Found", "Auth post not found")] });
 
+    if (submission.status !== AuthPostStatus.PENDING && submission.status !== AuthPostStatus.IN_EDIT) {
+      return interaction.editReply({
+        embeds: [errorEmbed("Cannot Edit", `This post is ${submission.status} and can no longer be edited.`)],
+      });
+    }
+
     const newContent: PostContent = {
       commentary: interaction.fields.getTextInputValue("commentary"),
       articleLink: interaction.fields.getTextInputValue("article_link") || null,
