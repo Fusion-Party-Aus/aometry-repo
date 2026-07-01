@@ -146,6 +146,33 @@ describe('calculateDynamicTimer', () => {
   });
 });
 
+describe('calculateDynamicTimer — NATURAL_APPROVAL is wall-clock only', () => {
+  it('never returns NATURAL_APPROVAL from vote-driven calculation alone', () => {
+    // Sweep a range of approval/objection combinations. NATURAL_APPROVAL must never
+    // be produced by calculateDynamicTimer itself — it is only set by the timer
+    // service based on wall-clock remaining time (see governance/ncap/timer.ts).
+    for (let approveCount = 0; approveCount <= POOL.length; approveCount++) {
+      for (let objectCount = 0; objectCount <= POOL.length - approveCount; objectCount++) {
+        const approves = makeVotes(POOL.slice(0, approveCount), VoteType.APPROVE);
+        const objects = makeVotes(POOL.slice(approveCount, approveCount + objectCount), VoteType.OBJECT);
+        const calc = calculateDynamicTimer(T, approves, objects, POOL.length);
+        expect(calc.gantryState).not.toBe(GantryState.NATURAL_APPROVAL);
+      }
+    }
+  });
+
+  it('a timer value that would fall within the old 25% natural-gantry band still hits VOTED_APPROVAL first', () => {
+    // With FLOOR_MULTIPLIER=0.5 and NATURAL_GANTRY_THRESHOLD=0.25, the floor is always
+    // reached (and VOTED_APPROVAL triggered) before the timer could ever drop to 25%,
+    // so the removed "natural gantry via vote calc" branch was unreachable dead code.
+    const approves = makeVotes(POOL, VoteType.APPROVE); // 100% approval → modifier 0.5 → hits floor exactly
+    const calc = calculateDynamicTimer(T, approves, [], POOL.length);
+    expect(calc.clampedTimerMinutes).toBe(T * 0.5);
+    expect(calc.clampedTimerMinutes).toBeGreaterThan(T * 0.25); // floor (50%) > natural threshold (25%)
+    expect(calc.gantryState).toBe(GantryState.VOTED_APPROVAL);
+  });
+});
+
 describe('checkSupermajorityBypass', () => {
   it('3/4 = 75% → true', () => {
     expect(checkSupermajorityBypass(makeVotes(['u1', 'u2', 'u3'], VoteType.APPROVE), 4)).toBe(true);
