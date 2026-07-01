@@ -1,6 +1,6 @@
 /**
  * Social Auth Timer Calculation Engine
- * Same dynamic timer/gantry model as governance/ncap (Constitution Rule 49(3)),
+ * Same dynamic timer/gantry model as governance/ncap,
  * applied to social media authorisation requests instead of NCAP submissions.
  */
 

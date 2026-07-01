@@ -2,8 +2,8 @@
  * Social Auth Pipeline Type Definitions
  * Drives the #auth-socmed workflow: submit -> comment -> approve -> edit -> publish (Fedica)
  *
- * Approval mechanics reuse the same dynamic timer/gantry model as governance/ncap
- * (Constitution Rule 49(3)), parameterised by sensitivity tier instead of NCAP category.
+ * Approval mechanics reuse the same dynamic timer/gantry model as governance/ncap,
+ * parameterised by sensitivity tier instead of NCAP category.
  */
 
 /**

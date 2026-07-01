@@ -1,7 +1,7 @@
 /**
  * NCAP Database Manager
  * Handles all database operations for NCAP system
- * Per Constitution Rules 49, 76(1)(v), and 21A (documentation requirements)
+ * Handles all database operations for NCAP submissions, votes, and audit log
  */
 
 import Database from 'better-sqlite3';
@@ -43,7 +43,7 @@ export class NcapDatabaseManager {
 
   /**
    * Initialize NCAP database tables
-   * Per Rule 76(3)(b) - complete data model
+   * Initialize NCAP database tables
    */
   private initializeTables(): void {
     // Main NCAP submissions table
@@ -116,7 +116,7 @@ export class NcapDatabaseManager {
       CREATE INDEX IF NOT EXISTS idx_ncap_votes_user_id ON ncap_votes(user_id);
     `);
 
-    // Audit log table per Rule 76(1)(v)
+    // Audit log table
     this.db.exec(`
       CREATE TABLE IF NOT EXISTS ncap_audit_log (
         id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -137,7 +137,7 @@ export class NcapDatabaseManager {
       CREATE INDEX IF NOT EXISTS idx_ncap_audit_event_type ON ncap_audit_log(event_type);
     `);
 
-    // Financial transactions table per Rule 50
+    // Financial transactions table
     this.db.exec(`
       CREATE TABLE IF NOT EXISTS ncap_financial_transactions (
         id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -424,7 +424,7 @@ export class NcapDatabaseManager {
   }
 
   /**
-   * Add audit log entry per Rule 76(1)(v)
+   * Add audit log entry
    */
   addAuditLog(log: Omit<NcapAuditLog, 'id'>): void {
     const stmt = this.db.prepare(`

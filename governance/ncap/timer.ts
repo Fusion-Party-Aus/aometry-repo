@@ -1,7 +1,7 @@
 /**
  * NCAP Timer Service
  * Background timer task that updates submission timers, detects gantry transitions,
- * and triggers notifications per Constitutional Rules 49, 50, 51, 76
+ * and triggers notifications for gantry transitions and expiration
  */
 
 import { BotClient } from "@/types/discord";
@@ -141,7 +141,7 @@ async function processExpiration(
     const objectCount = submission.objectVotes.length;
     const totalVotes = approveCount + objectCount;
 
-    // Determine outcome based on Rule 49(4)
+    // Determine outcome
     let finalStatus = "approved"; // Default: Approved (Natural Approval)
     let statusReason = "Natural Approval - No objections raised";
 
@@ -151,12 +151,12 @@ async function processExpiration(
       // Check if objection reached veto threshold (20%)
       if (objectCount / totalVotes >= 0.2) {
         finalStatus = "rejected";
-        statusReason = "Veto Pool Activated - 20%+ objections raised (Rule 49(4)(a))";
+        statusReason = "Veto Pool Activated - 20%+ objections raised";
       }
       // Check for supermajority bypass (75%+)
       else if (approvalRate >= 0.75) {
         finalStatus = "approved";
-        statusReason = "Supermajority Approval - 75%+ approved (Rule 49(3)(c))";
+        statusReason = "Supermajority Approval - 75%+ approved";
       }
     }
 
@@ -240,9 +240,9 @@ async function handleGantryTransition(
     let notificationText = "";
 
     if (newState === GantryState.NATURAL_APPROVAL) {
-      notificationText = `🟢 NCAP **${submission.id}** entered **Natural Approval** - approval likely (Rule 49(3)(a))`;
+      notificationText = `🟢 NCAP **${submission.id}** entered **Natural Approval** - approval likely`;
     } else if (newState === GantryState.OBJECTION) {
-      notificationText = `🔴 NCAP **${submission.id}** entered **Objection Gantry** - timer extended to 2x (Rule 49(3)(b))`;
+      notificationText = `🔴 NCAP **${submission.id}** entered **Objection Gantry** - timer extended to 2x`;
     }
 
     if (notificationText) {

@@ -1,16 +1,18 @@
 # aometry-repo
 
-Public plugin module repository for the Fusion Party Discord bot. The private host-bot project imports these modules at runtime; this repo exists so they can be developed and typechecked independently.
+Public Aometry module repository providing Fusion Party governance plugins for their Discord server. [Aometry](https://github.com/Fusion-Party-Aus/aometry) is a modular Discord bot architecture; this repo extends the base bot with Fusion-specific workflows. The modules are designed for Fusion, but Aometry itself is not a Fusion-specific bot.
+
+The private Aometry host instance imports these modules at runtime; this repo exists so they can be developed and typechecked independently.
 
 ## Architecture
 
 ```
-host-bot (private)          aometry-repo (this repo, public)
+Aometry host (private)      aometry-repo (this repo, public)
 ├── @/ (host types)    ←──  host-stubs/  (stand-in types for tsc)
-└── imports at runtime ←──  governance/  (plugin modules)
+└── imports at runtime ←──  governance/  (Fusion governance plugins)
 ```
 
-`host-stubs/` provides stub types for `@/types/discord`, `@/utils/responses`, etc. so `tsc --noEmit` works here without the private host-bot. The real types live in the host-bot; stubs only need to match the shape, not the implementation.
+`host-stubs/` provides stub types for `@/types/discord`, `@/utils/responses`, etc. so `tsc --noEmit` works here without the private Aometry host. The real types live in the host; stubs only need to match the shape, not the implementation.
 
 Path aliases in `tsconfig.json`:
 - `@/*` → `host-stubs/*`
@@ -19,10 +21,10 @@ Path aliases in `tsconfig.json`:
 ## Modules
 
 ### `governance/ncap/`
-Negative Consent Approval Protocol per Constitution Rule 49. Implements the full NCAP submission lifecycle: submit → vote → timer expiry / instant resolution → approve/block.
+Negative Consent Approval Protocol (NCAP). Implements the full NCAP submission lifecycle: submit → vote → timer expiry / instant resolution → approve/block.
 
 Key files:
-- `calculator.ts` — pure functions: dynamic timer math (Rule 49(3)), gantry state, supermajority bypass, `addVote`
+- `calculator.ts` — pure functions: dynamic timer math, gantry state, supermajority bypass, `addVote`
 - `database.ts` — `NcapDatabaseManager` wrapping better-sqlite3
 - `interaction.ts` — Discord button/modal handlers (approve, object, info)
 - `timer.ts` — background service: polls every 60s, checks business hours (AEST), handles gantry transitions and expiration
