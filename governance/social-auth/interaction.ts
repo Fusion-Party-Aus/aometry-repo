@@ -786,7 +786,12 @@ async function handleAuthPostManualPublish(interaction: ButtonInteraction, _clie
     const finalSubmission: SocialAuthSubmission = result.success
       ? { ...submission, status: AuthPostStatus.PUBLISHED, publishedAt: new Date(), fedicaPostId: result.fedicaPostId, fedicaScheduledAt: result.fedicaScheduledAt }
       : { ...submission, status: AuthPostStatus.PUBLISH_FAILED, fedicaError: result.error };
-    db.updateSubmission(finalSubmission);
+    db.atomicResolve(finalSubmission, {
+      postId: submission.id,
+      eventType: result.success ? 'publish_success' : 'publish_failure',
+      timestamp: new Date(),
+      details: result,
+    }, submission.status);
 
     const schedStr = result.fedicaScheduledAt ? `\nScheduled: **${result.fedicaScheduledAt.toISOString()}**` : '';
     const finalEmbed = new EmbedBuilder()
