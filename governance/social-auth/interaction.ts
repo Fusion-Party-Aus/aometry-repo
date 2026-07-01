@@ -437,11 +437,18 @@ async function resolveApproved(
 
   // Claim APPROVED → PUBLISHING before the external call so a crash/retry between the
   // Fedica call succeeding and the final atomicResolve can't cause a duplicate publish.
-  db.atomicResolve(
+  // The claim result must be checked — proceeding to call Fedica after a failed claim
+  // would defeat the guard entirely if a concurrent interaction already moved this row.
+  const publishingClaimed = db.atomicResolve(
     { ...approved, status: AuthPostStatus.PUBLISHING },
     { postId: approved.id, eventType: 'publish_attempt', timestamp: new Date(), details: { trigger: 'auto' } },
     AuthPostStatus.APPROVED
   );
+  if (!publishingClaimed) {
+    return interaction.editReply({
+      embeds: [errorEmbed("Already In Progress", `${approved.id} is already being published or was resolved by a concurrent interaction.`)],
+    });
+  }
 
   let result;
   try {
