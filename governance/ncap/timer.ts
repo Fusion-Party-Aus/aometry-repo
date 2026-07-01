@@ -1,14 +1,14 @@
 /**
  * NCAP Timer Service
  * Background timer task that updates submission timers, detects gantry transitions,
- * and triggers notifications per Constitutional Rules 49, 50, 51, 76
+ * and triggers notifications for gantry transitions and expiration
  */
 
 import { BotClient } from "@/types/discord";
 import { EmbedBuilder, Message } from "discord.js";
 import { NcapDatabaseManager } from "./database";
 import { calculateDynamicTimer } from "./calculator";
-import { GantryState, NcapStatus, NcapSubmission } from "./types";
+import { GantryState, NcapStatus, NcapSubmission, TIMER_CONSTANTS } from "./types";
 
 // Configuration
 const CHECK_INTERVAL_MS = 60 * 1000; // Check every minute (60 seconds)
@@ -88,6 +88,16 @@ async function checkTimers(client: BotClient) {
         submission.approverPool.memberIds.length
       );
 
+      // Wall-clock NATURAL_APPROVAL: fires when remaining time ≤ 25% of initial timer
+      // and no vote-driven gantry is active.
+      const expiresAt = submission.expiresAt?.getTime() ?? Date.now();
+      const remainingMs = expiresAt - Date.now();
+      const naturalGantryMs = submission.initialTimerMinutes * 60000 * TIMER_CONSTANTS.NATURAL_GANTRY_THRESHOLD;
+      if (timerCalc.gantryState === GantryState.NONE && remainingMs > 0 && remainingMs <= naturalGantryMs) {
+        timerCalc.gantryState = GantryState.NATURAL_APPROVAL;
+        timerCalc.gantryExpiresAt = new Date(expiresAt);
+      }
+
       const oldGantryState = submission.timerCalculation.gantryState;
       if (timerCalc.gantryState !== oldGantryState) {
         await handleGantryTransition(
@@ -131,7 +141,7 @@ async function processExpiration(
     const objectCount = submission.objectVotes.length;
     const totalVotes = approveCount + objectCount;
 
-    // Determine outcome based on Rule 49(4)
+    // Determine outcome
     let finalStatus = "approved"; // Default: Approved (Natural Approval)
     let statusReason = "Natural Approval - No objections raised";
 
@@ -141,12 +151,12 @@ async function processExpiration(
       // Check if objection reached veto threshold (20%)
       if (objectCount / totalVotes >= 0.2) {
         finalStatus = "rejected";
-        statusReason = "Veto Pool Activated - 20%+ objections raised (Rule 49(4)(a))";
+        statusReason = "Veto Pool Activated - 20%+ objections raised";
       }
       // Check for supermajority bypass (75%+)
       else if (approvalRate >= 0.75) {
         finalStatus = "approved";
-        statusReason = "Supermajority Approval - 75%+ approved (Rule 49(3)(c))";
+        statusReason = "Supermajority Approval - 75%+ approved";
       }
     }
 
@@ -230,9 +240,9 @@ async function handleGantryTransition(
     let notificationText = "";
 
     if (newState === GantryState.NATURAL_APPROVAL) {
-      notificationText = `🟢 NCAP **${submission.id}** entered **Natural Approval** - approval likely (Rule 49(3)(a))`;
+      notificationText = `🟢 NCAP **${submission.id}** entered **Natural Approval** - approval likely`;
     } else if (newState === GantryState.OBJECTION) {
-      notificationText = `🔴 NCAP **${submission.id}** entered **Objection Gantry** - timer extended to 2x (Rule 49(3)(b))`;
+      notificationText = `🔴 NCAP **${submission.id}** entered **Objection Gantry** - timer extended to 2x`;
     }
 
     if (notificationText) {

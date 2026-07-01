@@ -1,8 +1,7 @@
 /**
  * NCAP Timer Calculation Engine
- * Implements dynamic timer calculation per Constitution Rule 49(3)
- * 
- * Formula from Rule 49(3)(a):
+ *
+ * Formula:
  * approval_rate = (number of APPROVE votes) / (approver pool size)
  * objection_rate = (number of OBJECT votes) / (approver pool size)
  * timer_modifier = 1 - (0.5 × approval_rate) + (1.0 × objection_rate)
@@ -21,7 +20,6 @@ import {
 
 /**
  * Calculate dynamic timer based on current vote state
- * Per Rule 49(3)
  */
 export function calculateDynamicTimer(
   initialTimerMinutes: number,
@@ -36,7 +34,7 @@ export function calculateDynamicTimer(
   const approvalRate = approverPoolSize > 0 ? approvalCount / approverPoolSize : 0;
   const objectionRate = approverPoolSize > 0 ? objectionCount / approverPoolSize : 0;
   
-  // Calculate timer modifier per Rule 49(3)(a)
+  // Calculate timer modifier
   const timerModifier = 1 
     - (TIMER_CONSTANTS.APPROVAL_COEFFICIENT * approvalRate)
     + (TIMER_CONSTANTS.OBJECTION_COEFFICIENT * objectionRate);
@@ -44,7 +42,7 @@ export function calculateDynamicTimer(
   // Apply modifier to initial timer
   const currentTimerMinutes = initialTimerMinutes * timerModifier;
   
-  // Calculate floor and ceiling per Rule 49(3)(b)
+  // Calculate floor and ceiling
   const floor = initialTimerMinutes * TIMER_CONSTANTS.FLOOR_MULTIPLIER;
   const ceiling = initialTimerMinutes * TIMER_CONSTANTS.CEILING_MULTIPLIER;
   
@@ -53,7 +51,7 @@ export function calculateDynamicTimer(
   let gantryState = GantryState.NONE;
   let gantryExpiresAt: Date | null = null;
   
-  // Check for floor (Approved Gantry trigger) per Rule 49(3)(b)(i)
+  // Check for floor (Voted Approval gantry trigger)
   if (currentTimerMinutes <= floor) {
     clampedTimerMinutes = floor;
     gantryState = GantryState.VOTED_APPROVAL;
@@ -61,21 +59,16 @@ export function calculateDynamicTimer(
     gantryExpiresAt = new Date(Date.now() + floor * 60 * 1000);
   }
   
-  // Check for ceiling (Objection Gantry trigger) per Rule 49(3)(b)(ii)
+  // Check for ceiling (Objection gantry trigger)
   else if (currentTimerMinutes >= ceiling) {
     clampedTimerMinutes = ceiling;
     gantryState = GantryState.OBJECTION;
-    // Objection Gantry duration = 0.25 × T per Rule 49(5)(a)(iii)
+    // Objection Gantry duration = 0.25 × T
     const objectionGantryDuration = initialTimerMinutes * TIMER_CONSTANTS.NATURAL_GANTRY_THRESHOLD;
     gantryExpiresAt = new Date(Date.now() + objectionGantryDuration * 60 * 1000);
   }
-  
-  // Check for natural gantry (approaching expiration) per Rule 49(5)(a)(i)
-  else if (clampedTimerMinutes <= initialTimerMinutes * TIMER_CONSTANTS.NATURAL_GANTRY_THRESHOLD) {
-    gantryState = GantryState.NATURAL_APPROVAL;
-    // Natural gantry duration = remaining time (typically 0.25 × T)
-    gantryExpiresAt = new Date(Date.now() + clampedTimerMinutes * 60 * 1000);
-  }
+  // NATURAL_APPROVAL gantry is wall-clock-based: fires in the timer service when
+  // remaining time drops to ≤25% of T, not from vote-driven timer adjustment.
   
   return {
     initialTimerMinutes,
@@ -92,8 +85,7 @@ export function calculateDynamicTimer(
 }
 
 /**
- * Check if supermajority bypass is triggered
- * Per Rule 49(5)(e): >= 75% approval triggers immediate approval
+ * Check if supermajority bypass is triggered (>= 75% approval)
  */
 export function checkSupermajorityBypass(
   approveVotes: NcapVote[],
@@ -107,7 +99,6 @@ export function checkSupermajorityBypass(
 
 /**
  * Check for instant resolution triggers during gantry periods
- * Per Rule 49(5)(c-d)
  */
 export function checkInstantResolution(
   gantryState: GantryState,
@@ -116,7 +107,7 @@ export function checkInstantResolution(
   objectVotes: NcapVote[],
   approverPoolSize: number
 ): InstantResolution | null {
-  // Supermajority Bypass per Rule 49(5)(e) - can trigger at any time
+  // Supermajority Bypass — can trigger at any time
   if (checkSupermajorityBypass(approveVotes, approverPoolSize)) {
     return {
       type: 'supermajority_bypass',
@@ -130,7 +121,7 @@ export function checkInstantResolution(
     };
   }
   
-  // Approved Gantry instant completion per Rule 49(5)(c)
+  // Approval Gantry instant completion
   if ((gantryState === GantryState.NATURAL_APPROVAL || gantryState === GantryState.VOTED_APPROVAL) 
       && newVoteType === VoteType.APPROVE) {
     return {
@@ -145,7 +136,7 @@ export function checkInstantResolution(
     };
   }
   
-  // Objection Gantry instant dismissal per Rule 49(5)(d)
+  // Objection Gantry instant dismissal
   if (gantryState === GantryState.OBJECTION && newVoteType === VoteType.OBJECT) {
     return {
       type: 'objection_gantry_object',
@@ -205,7 +196,6 @@ export function updateSubmissionTimer(submission: NcapSubmission): NcapSubmissio
 
 /**
  * Add a vote to submission and recalculate timer
- * Enforces vote rules per Rule 49(4)
  */
 export function addVote(
   submission: NcapSubmission,
@@ -213,7 +203,7 @@ export function addVote(
   userName: string,
   voteType: VoteType
 ): { submission: NcapSubmission; error?: string; instantResolution?: InstantResolution } {
-  // Rule 49(4)(d): Proposer cannot vote on own submission
+  // Proposer cannot vote on own submission
   if (userId === submission.proposerId) {
     return { submission, error: 'Proposer cannot vote on their own NCAP submission' };
   }
@@ -223,7 +213,7 @@ export function addVote(
     return { submission, error: 'Only approver pool members can vote on this submission' };
   }
   
-  // Rule 49(4)(c): Cannot change vote after casting
+  // Cannot change vote after casting
   const hasApproveVote = submission.approveVotes.some(v => v.userId === userId);
   const hasObjectVote = submission.objectVotes.some(v => v.userId === userId);
   

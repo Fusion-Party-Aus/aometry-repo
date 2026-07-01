@@ -111,7 +111,7 @@ const command: Command = {
       fileLabel
     );
 
-    await interaction.showModal(modal);
+    await msgInteraction.showModal(modal);
   },
 };
 

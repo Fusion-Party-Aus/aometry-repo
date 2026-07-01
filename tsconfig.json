@@ -1,0 +1,18 @@
+{
+  "compilerOptions": {
+    "target": "ES2021",
+    "module": "commonjs",
+    "moduleResolution": "node",
+    "strict": true,
+    "noEmit": true,
+    "esModuleInterop": true,
+    "skipLibCheck": true,
+    "resolveJsonModule": true,
+    "baseUrl": ".",
+    "paths": {
+      "@/*": ["host-stubs/*"],
+      "@installed/governance/*": ["governance/*"]
+    }
+  },
+  "include": ["governance/**/*.ts", "host-stubs/**/*.ts"]
+}

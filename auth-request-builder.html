@@ -1,0 +1,691 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Auth Request Builder — Fusion Party</title>
+<style>
+@import url('https://fonts.googleapis.com/css2?family=IBM+Plex+Sans:wght@400;500;600&family=IBM+Plex+Mono:wght@400;500&display=swap');
+:root{--bg:#0d0f18;--surface:#161924;--s2:#1e2232;--s3:#252a3a;--border:#2a2f45;--bhi:#3d4460;--accent:#4eb87a;--adim:#2d7a50;--abg:rgba(78,184,122,.08);--text:#dde0ee;--muted:#7e86a8;--dim:#4a5070;--danger:#e05c5c;--dbg:rgba(224,92,92,.10);--warn:#e0a040;--wbg:rgba(224,160,64,.10);--info:#5c9de0;--ibg:rgba(92,157,224,.10);--okbg:rgba(78,184,122,.10);--mono:'IBM Plex Mono',monospace;--sans:'IBM Plex Sans',system-ui,sans-serif;--r:8px;--rl:12px}
+*,*::before,*::after{box-sizing:border-box;margin:0;padding:0}
+body{font-family:var(--sans);background:var(--bg);color:var(--text);min-height:100vh;line-height:1.5}
+.layout{max-width:820px;margin:0 auto;padding:2rem 1.25rem 5rem}
+header{display:flex;align-items:center;gap:14px;margin-bottom:2rem;padding-bottom:1.5rem;border-bottom:1px solid var(--border)}
+.logo{width:40px;height:40px;background:var(--accent);border-radius:10px;display:grid;place-items:center;font-family:var(--mono);font-size:18px;color:#0d0f18;font-weight:500;flex-shrink:0}
+.header-text h1{font-size:1.1rem;font-weight:600}
+.header-text p{font-size:.75rem;color:var(--muted);margin-top:3px;font-family:var(--mono)}
+.sec{margin-bottom:1rem}
+.sec-label{font-size:.68rem;font-weight:600;text-transform:uppercase;letter-spacing:.1em;color:var(--dim);margin-bottom:.55rem;padding-left:2px}
+.card{background:var(--surface);border:1px solid var(--border);border-radius:var(--rl);padding:1.25rem 1.5rem}
+.field{margin-bottom:1rem}.field:last-child{margin-bottom:0}
+.field>label{display:flex;justify-content:space-between;align-items:baseline;font-size:.78rem;font-weight:500;color:var(--muted);margin-bottom:.4rem}
+.field>label .hint{font-weight:400;color:var(--dim);font-size:.72rem}
+.row2{display:grid;grid-template-columns:1fr 1fr;gap:1rem}
+input[type=text],select,textarea{width:100%;background:var(--s2);border:1px solid var(--border);border-radius:var(--r);color:var(--text);font-family:var(--sans);font-size:.875rem;padding:.55rem .75rem;outline:none;transition:border-color .12s,background .12s;appearance:none}
+input[type=text]:focus,select:focus,textarea:focus{border-color:var(--adim);background:var(--s3)}
+input::placeholder,textarea::placeholder{color:var(--dim)}
+textarea{resize:vertical;min-height:90px;line-height:1.55}
+select{background-image:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='8' fill='none'%3E%3Cpath d='M1 1l5 5 5-5' stroke='%234a5070' stroke-width='1.5' stroke-linecap='round'/%3E%3C/svg%3E");background-repeat:no-repeat;background-position:right 10px center;padding-right:32px;cursor:pointer}
+select option{background:#1e2232}
+.char-count{font-size:.7rem;color:var(--dim);text-align:right;margin-top:.3rem;font-family:var(--mono)}
+.char-count.warn{color:var(--warn)}.char-count.over{color:var(--danger)}
+.dest-grid{display:flex;flex-wrap:wrap;gap:8px}
+.dest-chip{display:inline-flex;align-items:center;gap:6px;padding:6px 12px;border-radius:var(--r);border:1px solid var(--border);background:var(--s2);cursor:pointer;user-select:none;font-size:.82rem;color:var(--muted);transition:all .12s}
+.dest-chip:hover{border-color:var(--bhi);color:var(--text)}
+.dest-chip.on{background:var(--abg);border-color:var(--adim);color:var(--accent);font-weight:500}
+.dest-chip input{display:none}
+.dest-chip .dot{width:7px;height:7px;border-radius:50%;background:currentColor;opacity:.5}
+.dest-chip.on .dot{opacity:1}
+.pnote{display:none;font-size:.78rem;color:var(--muted);margin-top:.75rem;padding:.6rem .85rem;border-radius:0 var(--r) var(--r) 0;line-height:1.5}
+.pnote.info{background:var(--ibg);border-left:2px solid var(--info)}
+.pnote.warn{background:var(--wbg);border-left:2px solid var(--warn)}
+.pnote.visible{display:block}
+.htag-group{margin-bottom:1rem}.htag-group:last-child{margin-bottom:0}
+.htag-group-label{font-size:.72rem;font-weight:500;color:var(--dim);margin-bottom:.5rem}
+.htag-group-label span{font-weight:400}
+.tag-grid{display:flex;flex-wrap:wrap;gap:5px}
+.htag{display:inline-flex;align-items:center;gap:3px;font-family:var(--mono);font-size:.72rem;padding:4px 8px;border-radius:4px;border:1px solid var(--border);background:var(--s2);color:var(--muted);cursor:pointer;user-select:none;transition:all .12s}
+.htag:hover{border-color:var(--bhi);color:var(--text)}
+.htag.on{background:var(--abg);border-color:var(--adim);color:var(--accent)}
+.htag input{display:none}
+.htag-sep{width:100%;height:1px;background:var(--border);margin:.75rem 0}
+.custom-tag-row{display:flex;gap:6px;margin-top:.75rem}
+.custom-tag-row input{flex:1}
+.custom-tags{display:flex;flex-wrap:wrap;gap:5px;margin-top:.5rem}
+.ctag{display:inline-flex;align-items:center;gap:4px;font-family:var(--mono);font-size:.72rem;padding:4px 8px;border-radius:4px;border:1px solid var(--bhi);background:var(--s2);color:var(--text)}
+.ctag button{background:none;border:none;color:var(--dim);cursor:pointer;padding:0;font-size:1em;line-height:1}
+.ctag button:hover{color:var(--danger)}
+.approval-grid{display:grid;grid-template-columns:1fr 1fr;gap:1rem;align-items:start}
+.approval-advice{padding:.75rem;border-radius:var(--r);font-size:.8rem;line-height:1.5;border:1px solid var(--border);background:var(--s2);color:var(--muted)}
+.approval-advice strong{display:block;font-size:.72rem;font-weight:600;margin-bottom:4px;text-transform:uppercase;letter-spacing:.06em}
+.approval-advice.ok{background:var(--okbg);border-color:var(--adim);color:var(--text)}.approval-advice.ok strong{color:var(--accent)}
+.approval-advice.caution{background:var(--wbg);border-color:var(--warn);color:var(--text)}.approval-advice.caution strong{color:var(--warn)}
+.approval-advice.stop{background:var(--dbg);border-color:var(--danger);color:var(--text)}.approval-advice.stop strong{color:var(--danger)}
+.check-label{display:flex;align-items:flex-start;gap:10px;cursor:pointer;font-size:.82rem;color:var(--muted);padding:.65rem .85rem;background:var(--s2);border:1px solid var(--border);border-radius:var(--r);user-select:none;margin-top:1rem}
+.check-label input[type=checkbox]{width:auto;margin-top:3px;accent-color:var(--accent);flex-shrink:0}
+.check-label div strong{display:block;font-size:.83rem;color:var(--text);margin-bottom:2px}
+.btn{font-family:var(--sans);font-size:.82rem;font-weight:500;padding:.5rem 1rem;border-radius:var(--r);border:1px solid var(--border);cursor:pointer;background:var(--s2);color:var(--muted);white-space:nowrap;transition:all .12s}
+.btn:hover{border-color:var(--bhi);color:var(--text)}.btn:active{transform:scale(.98)}
+.btn-primary{background:var(--accent);border-color:var(--accent);color:#0d0f18;font-weight:600;font-size:.9rem;padding:.75rem 1.5rem;width:100%;border-radius:var(--rl);margin-top:.5rem}
+.btn-primary:hover{background:#5ecb8a;border-color:#5ecb8a;color:#0d0f18}
+.btn-copy{font-size:.75rem;padding:.3rem .8rem}
+.btn-copy.copied{border-color:var(--accent);color:var(--accent)}
+.output-sec{display:none;margin-top:1.5rem}.output-sec.visible{display:block}
+.output-card{background:#080b12;border:1px solid var(--border);border-radius:var(--rl);overflow:hidden}
+.output-header{display:flex;justify-content:space-between;align-items:center;padding:.75rem 1.25rem;border-bottom:1px solid var(--border);background:var(--surface)}
+.output-header-label{font-size:.7rem;font-weight:600;text-transform:uppercase;letter-spacing:.1em;color:var(--dim)}
+.output-body{padding:1.25rem;font-family:var(--mono);font-size:.8rem;line-height:1.7;color:#c0c4da;white-space:pre-wrap;word-break:break-word}
+.output-notice{margin:0 1.25rem 1.25rem;padding:.55rem .85rem;background:var(--wbg);border-left:2px solid var(--warn);border-radius:0 var(--r) var(--r) 0;font-size:.78rem;color:var(--warn)}
+.checklist{display:none;margin-top:.75rem;background:var(--surface);border:1px solid var(--border);border-radius:var(--rl);padding:1rem 1.25rem}
+.checklist.visible{display:block}
+.checklist-title{font-size:.68rem;font-weight:600;text-transform:uppercase;letter-spacing:.1em;color:var(--dim);margin-bottom:.65rem}
+.check-item{display:flex;align-items:flex-start;gap:8px;font-size:.82rem;color:var(--muted);padding:.35rem 0;border-bottom:1px solid var(--border);line-height:1.4}
+.check-item:last-child{border-bottom:none}
+.check-item input[type=checkbox]{margin-top:2px;flex-shrink:0;accent-color:var(--accent);cursor:pointer}
+.char-bar{display:flex;align-items:center;gap:1rem;flex-wrap:wrap;padding:.65rem 1rem;background:var(--surface);border:1px solid var(--border);border-radius:var(--r);font-size:.75rem;font-family:var(--mono);color:var(--muted);margin-top:-.25rem}
+.cb-total{color:var(--text);font-weight:500}
+.cb-plat{display:none;align-items:center;gap:4px;padding:2px 7px;border-radius:3px;border:1px solid var(--border)}
+.cb-plat.ok{display:inline-flex;border-color:var(--adim);color:var(--accent);background:var(--abg)}
+.cb-plat.warn{display:inline-flex;border-color:var(--warn);color:var(--warn);background:var(--wbg)}
+.cb-plat.over{display:inline-flex;border-color:var(--danger);color:var(--danger);background:var(--dbg)}
+
+details{margin-bottom:1.5rem;border:1px solid var(--border);border-radius:var(--rl);overflow:hidden}
+summary{display:flex;align-items:center;justify-content:space-between;padding:.85rem 1.25rem;background:var(--surface);cursor:pointer;font-size:.82rem;font-weight:500;color:var(--muted);list-style:none;user-select:none;gap:1rem}
+summary::-webkit-details-marker{display:none}
+summary:hover{color:var(--text)}
+summary .sum-title{display:flex;align-items:center;gap:8px}
+summary .sum-chevron{font-size:.65rem;color:var(--dim);transition:transform .2s;flex-shrink:0}
+details[open] summary .sum-chevron{transform:rotate(180deg)}
+details[open] summary{border-bottom:1px solid var(--border)}
+.policy-body{padding:1.25rem 1.5rem;background:var(--bg);font-size:.82rem;line-height:1.65;color:var(--muted)}
+.policy-body h3{font-size:.7rem;font-weight:600;text-transform:uppercase;letter-spacing:.09em;color:var(--dim);margin:1.25rem 0 .5rem}
+.policy-body h3:first-child{margin-top:0}
+.policy-body p{margin-bottom:.6rem}
+.policy-body p:last-child{margin-bottom:0}
+.policy-body ul{margin:.25rem 0 .6rem 1.1rem}
+.policy-body li{margin-bottom:.3rem}
+.policy-body code{font-family:var(--mono);font-size:.78rem;background:var(--s2);border:1px solid var(--border);border-radius:3px;padding:1px 5px;color:var(--text)}
+.policy-body .block{background:var(--s2);border:1px solid var(--border);border-radius:var(--r);padding:.65rem .9rem;font-family:var(--mono);font-size:.75rem;line-height:1.6;color:var(--text);margin:.4rem 0 .6rem}
+.policy-body strong{color:var(--text);font-weight:500}
+.plink-item span{flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.plink-option.is-added .import-body{padding:1rem 1.5rem;background:var(--bg)}
+.import-row{display:flex;gap:6px}
+.import-row textarea{flex:1;min-height:70px;font-family:var(--mono);font-size:.75rem}
+.import-error{font-size:.75rem;color:var(--danger);margin-top:.4rem;display:none}
+.import-error.visible{display:block}
+@media(max-width:580px){.row2,.approval-grid{grid-template-columns:1fr}.layout{padding:1rem 1rem 3rem}}
+</style>
+</head>
+<body>
+<div class="layout">
+
+<header>
+  <div class="logo">&#x2295;</div>
+  <div class="header-text">
+    <h1>Auth Request Builder</h1>
+    <p>#auth-social-media &middot; #auth-comms &middot; Discord formatter</p>
+  </div>
+</header>
+
+<!-- POLICY REFERENCE -->
+<details>
+  <summary>
+    <span class="sum-title">&#x1F4CB; Channel policy &amp; guide</span>
+    <span class="sum-chevron">&#x25BC;</span>
+  </summary>
+  <div class="policy-body">
+
+    <h3>Purpose</h3>
+    <p>This channel is for <strong>authorising content only</strong>. Messages other than an auth request or a formal objection to proposed content will be deleted. Discussion belongs in threads.</p>
+
+    <h3>Roles with access</h3>
+    <p>@National Executive, @Policy Dev Committee, @Comms Committee, @authnational, @Candidate, @Comms</p>
+
+    <h3>Submitting a request</h3>
+    <ul>
+      <li>Your message <strong>must ping @authnational</strong>.</li>
+      <li>Specify the <strong>platform and account</strong> you intend to post to.</li>
+      <li>Proofread before posting — check for typos.</li>
+      <li>Use <strong>Shift+Enter</strong> to add paragraph breaks for readability.</li>
+      <li>Posts from @Candidate or @Comms automatically receive voting buttons from the bot.</li>
+    </ul>
+
+    <h3>Approval process</h3>
+    <ul>
+      <li><strong>@authnational</strong> is the only role that can approve (&#x2705;). Anyone in the channel may lodge a rejection (&#x274C;).</li>
+      <li>Once <strong>two approvals</strong> are registered, the bot posts a summary naming the approvers and pinging the requester.</li>
+      <li>If your content only requires <strong>one approver</strong> (besides yourself), approve your own request first — then only one additional approval is needed.</li>
+      <li>You are responsible for knowing how many approvals your content requires.</li>
+    </ul>
+
+    <h3>Rejections</h3>
+    <ul>
+      <li>If you reject a request, immediately start a thread or reply with the substance of your objection — or at least indicate when you will provide it.</li>
+      <li><strong>Do not post content that has an unresolved rejection against it.</strong> Resolve the issue in a thread first.</li>
+    </ul>
+
+    <h3>Post format (social media)</h3>
+    <p>The content block in your auth request should follow this structure:</p>
+    <div class="block">&lt;Your commentary&gt;
+See our policy here: &lt;policy link&gt;
+&lt;article link&gt;
+#auspol #fusionparty #PolicyAreaTag</div>
+    <p>For <strong>Facebook and Instagram</strong>: attach a screenshot or image from the article. Do not rely on the link preview card.</p>
+
+    <h3>Hashtag rules</h3>
+    <ul>
+      <li>All posts should include <code>#auspol</code>, <code>#fusionparty</code>, and a tag for the relevant policy area (e.g. <code>#ClimateRescue</code>, <code>#SecularHumanism</code>, <code>#FutureFocused</code>).</li>
+      <li>Additional hashtags should be <strong>topical and platform-appropriate</strong>. For example, <code>#EndFossilFuels</code> is fine on Twitter/X but not appropriate for Facebook.</li>
+    </ul>
+
+    <h3>Scheduling</h3>
+    <ul>
+      <li>Once approved, reply to the auth message to confirm scheduling.</li>
+      <li>Include the scheduled time and flag anything that still needs attention (e.g. a missing policy link, hashtag review) by tagging the relevant platform role.</li>
+    </ul>
+
+    <h3>Slowmode</h3>
+    <p>This channel has a <strong>2-hour slowmode</strong>. This limits post volume and keeps discussion out of the main channel. If you need more than one reply, move it to a thread — no exceptions.</p>
+
+  </div>
+</details>
+
+<!-- IMPORT -->
+<details>
+  <summary>
+    <span class="sum-title">&#x1F4E5; Import from JSON</span>
+    <span class="sum-chevron">&#x25BC;</span>
+  </summary>
+  <div class="import-body">
+    <div class="import-row">
+      <textarea id="import-input" placeholder="Paste a previously generated JSON block here&#x2026;"></textarea>
+      <button class="btn" style="align-self:flex-start" onclick="importJSON()">Import</button>
+    </div>
+    <div class="import-error" id="import-error"></div>
+  </div>
+</details>
+
+<!-- 1. DESTINATIONS -->
+<div class="sec">
+  <div class="sec-label">1 &#x2014; Destinations</div>
+  <div class="card">
+    <div class="dest-grid" id="dest-grid">
+      <label class="dest-chip" id="chip-allsocial"><input type="checkbox" value="All Social Media" id="dest-allsocial" onchange="onAllSocialChange()"><span class="dot"></span>All Social Media</label>
+      <label class="dest-chip"><input type="checkbox" value="Facebook" onchange="onDestChange()"><span class="dot"></span>Facebook</label>
+      <label class="dest-chip"><input type="checkbox" value="Twitter/X" onchange="onDestChange()"><span class="dot"></span>Twitter / X</label>
+      <label class="dest-chip"><input type="checkbox" value="Instagram" onchange="onDestChange()"><span class="dot"></span>Instagram</label>
+      <label class="dest-chip"><input type="checkbox" value="Mastodon" onchange="onDestChange()"><span class="dot"></span>Mastodon</label>
+      <label class="dest-chip"><input type="checkbox" value="LinkedIn" onchange="onDestChange()"><span class="dot"></span>LinkedIn</label>
+      <label class="dest-chip"><input type="checkbox" value="Newsletter" onchange="onDestChange()"><span class="dot"></span>Newsletter / Email</label>
+      <label class="dest-chip"><input type="checkbox" value="Other" onchange="onDestChange()"><span class="dot"></span>Other</label>
+    </div>
+    <div id="pnote-Facebook" class="pnote warn">&#x26A0; <strong>Facebook:</strong> don't rely on the link preview &#x2014; attach a screenshot of the article. Avoid Twitter-specific hashtags like #EndFossilFuels.</div>
+    <div id="pnote-Twitter" class="pnote info">&#x2139; <strong>Twitter/X:</strong> platform-specific hashtags are fine. Watch total character count including links (280 limit).</div>
+    <div id="pnote-Instagram" class="pnote info">&#x2139; <strong>Instagram:</strong> body links aren't clickable &#x2014; note this for reviewers if a link matters.</div>
+    <div id="pnote-Mastodon" class="pnote info">&#x2139; <strong>Mastodon:</strong> 500-character limit on most instances. Hashtags are case-sensitive and searchable.</div>
+    <div id="pnote-Newsletter" class="pnote info">&#x2139; <strong>Newsletter/Email:</strong> hashtags are decorative only &#x2014; consider whether they add value.</div>
+  </div>
+</div>
+
+<!-- 2. POST CONTENT -->
+<div class="sec">
+  <div class="sec-label">2 &#x2014; Post content</div>
+  <div class="card">
+    <div class="field">
+      <label>Commentary text <span class="hint">your words, not the article's</span></label>
+      <textarea id="commentary" placeholder="The text of your commentary&#x2026;" oninput="liveCount()"></textarea>
+      
+    </div>
+    <div class="field">
+      <label>Article link</label>
+      <input type="text" id="article-link" placeholder="https://&#x2026;" oninput="liveCount()" />
+    </div>
+    <div class="field">
+      <label>Policy area links <span class="hint">click to toggle &#x2014; link goes into post</span></label>
+      <div class="dest-grid" id="policy-link-grid"></div>
+    </div>
+</div>
+
+<!-- CHAR BAR -->
+<div class="char-bar" id="char-bar">
+  <span>Post length: <span class="cb-total" id="cb-total">0</span> chars</span>
+  <span class="cb-plat" id="cb-tw">Twitter/X: <span id="cb-tw-n">0</span>/280</span>
+  <span class="cb-plat" id="cb-ma">Mastodon: <span id="cb-ma-n">0</span>/500</span>
+</div>
+
+<!-- 3. HASHTAGS -->
+<div class="sec">
+  <div class="sec-label">3 &#x2014; Hashtags</div>
+  <div class="card">
+    <div class="htag-group">
+      <div class="htag-group-label">Core <span>&#x2014; recommended on everything</span></div>
+      <div class="tag-grid" id="tg-core"></div>
+    </div>
+    <div class="htag-sep"></div>
+    <div class="htag-group">
+      <div class="htag-group-label">Policy areas <span>&#x2014; selecting one will suggest a policy link above</span></div>
+      <div class="tag-grid" id="tg-policy"></div>
+    </div>
+    <div class="htag-sep"></div>
+    <div class="htag-group">
+      <div class="htag-group-label">Party branches &amp; allies <span>&#x2014; for branch-specific posts</span></div>
+      <div class="tag-grid" id="tg-branch"></div>
+    </div>
+    <div class="htag-sep"></div>
+    <div class="htag-group">
+      <div class="htag-group-label">Custom tags</div>
+      <div class="custom-tags" id="custom-tags"></div>
+      <div class="custom-tag-row">
+        <input type="text" id="new-tag" placeholder="#EndFossilFuels" onkeydown="onTagKey(event)" />
+        <button class="btn" onclick="addCustomTag()">+ Add</button>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- 4. APPROVAL -->
+<div class="sec">
+  <div class="sec-label">4 &#x2014; Approval requirement</div>
+  <div class="card">
+    <div class="approval-grid">
+      <div class="field" style="margin-bottom:0">
+        <label>Content type</label>
+        <select id="content-type" onchange="onContentType()">
+          <option value="">&#x2014; select sensitivity level &#x2014;</option>
+          <option value="low">&#x1F7E2; Low &#x2014; reshares, commenting on news, sharing existing Fusion content</option>
+          <option value="medium">&#x1F7E1; Medium &#x2014; original posts, responses to breaking news</option>
+          <option value="high">&#x1F534; High &#x2014; controversial topics, anything that could misrepresent the party</option>
+        </select>
+      </div>
+      <div class="approval-advice" id="approval-advice">Select a content type to see approval guidance.</div>
+    </div>
+    <label class="check-label">
+      <input type="checkbox" id="self-approve" />
+      <div><strong>Self-approving this request</strong>Only one additional @authnational approval needed &#x2014; react &#x2705; to your own message after posting.</div>
+    </label>
+  </div>
+</div>
+
+<!-- 5. NOTES -->
+<div class="sec">
+  <div class="sec-label">5 &#x2014; Reviewer notes</div>
+  <div class="card">
+    <div class="field">
+      <label>Notes <span class="hint">optional &#x2014; scheduling, known issues, flags for reviewers</span></label>
+      <textarea id="notes" style="min-height:70px" placeholder="e.g. Scheduling for Tuesday 9am AEST. Policy link TBC. Hashtags may need review for FB."></textarea>
+    </div>
+  </div>
+</div>
+
+<button class="btn btn-primary" onclick="generate()">Generate Discord message &#x2193;</button>
+
+<!-- OUTPUT -->
+<div class="output-sec" id="output-sec">
+  <div class="sec-label" style="margin-top:1.5rem">Your Discord message</div>
+  <div class="output-card">
+    <div class="output-header">
+      <span class="output-header-label">Ready to paste</span>
+      <button class="btn btn-copy" id="copy-btn" onclick="copyOutput()">Copy</button>
+    </div>
+    <div class="output-body" id="output-body"></div>
+    <div class="output-notice" id="output-notice" style="display:none">&#x1F4CE; Attach a screenshot or image from the article when posting &#x2014; don't rely on the link preview card.</div>
+  </div>
+  <div class="checklist" id="checklist">
+    <div class="checklist-title">Pre-post checklist</div>
+    <div class="check-item"><input type="checkbox"><span>Proofread for typos</span></div>
+    <div class="check-item"><input type="checkbox"><span>Destinations and accounts are correct</span></div>
+    <div class="check-item" id="ck-screenshot" style="display:none"><input type="checkbox"><span>Screenshot from article ready to attach</span></div>
+    <div class="check-item"><input type="checkbox"><span>Policy link is correct and opens properly</span></div>
+    <div class="check-item"><input type="checkbox"><span>Article link is correct and opens properly</span></div>
+    <div class="check-item"><input type="checkbox"><span>Hashtags are appropriate for all selected platforms</span></div>
+    <div class="check-item" id="ck-self" style="display:none"><input type="checkbox"><span>Self-approved &#x2014; remember to react &#x2705; to your own message</span></div>
+    <div class="check-item"><input type="checkbox"><span>@authnational ping is in the message</span></div>
+  </div>
+</div>
+
+</div>
+<script>
+const TAGS_CORE=[{tag:'auspol'},{tag:'fusionparty'}];
+const TAGS_POLICY=[
+  {tag:'ClimateRescue',url:'https://www.fusionparty.org.au/climate_rescue'},
+  {tag:'FutureFocused',url:'https://www.fusionparty.org.au/future_focused'},
+  {tag:'EducationForLife',url:'https://www.fusionparty.org.au/education_for_life'},
+  {tag:'EthicalGovernance',url:'https://www.fusionparty.org.au/ethical_governance'},
+  {tag:'DrugReform',url:'https://www.fusionparty.org.au/policy_faq'},
+  {tag:'FairSociety',url:'https://www.fusionparty.org.au/fair_inclusive_society'},
+  {tag:'IndividualFreedoms',url:'https://www.fusionparty.org.au/individual_freedoms'},
+  {tag:'UBI',url:'https://www.fusionparty.org.au/fair_inclusive_society'},
+  {tag:'EcologicalRestoration',url:'https://www.fusionparty.org.au/ecological_restoration'},
+  {tag:'DigitalLiberty',url:'https://www.fusionparty.org.au/civil_digital_liberties'},
+  {tag:'SecularHumanism',url:'https://www.fusionparty.org.au/secular_humanism'},
+  {tag:'FairForeignPolicy',url:'https://www.fusionparty.org.au/fair_foreign_policy'},
+  {tag:'HousingAsAHome',url:'https://www.fusionparty.org.au/housing_as_a_home'},
+  {tag:'AntiAgeing',url:'https://www.fusionparty.org.au/future_focused'},
+];
+const TAGS_BRANCH=[
+  {tag:'ScienceParty'},{tag:'PirateParty'},{tag:'SecularParty'},
+  {tag:'VotePlanet'},{tag:'ClimateJustice'},{tag:'AusProgressives'},{tag:'DemocracyFirst'}
+];
+const APPROVAL={
+  low:{label:'Low sensitivity',cls:'ok',emoji:'🟢',title:'Typically 1 approver',body:"Reshares, commentary on news, sharing existing Fusion content. Self-approving is appropriate — one @authnational approval should be enough."},
+  medium:{label:'Medium sensitivity',cls:'caution',emoji:'🟡',title:'Typically 2 approvers',body:"Original posts or responses to breaking news usually require 2 approvals. Don't self-approve unless you're certain only 1 is required."},
+  high:{label:'High sensitivity',cls:'stop',emoji:'🔴',title:'At least 2 approvals required',body:"Controversial topics or anything that could be taken out of context or misrepresent the party. Do not self-approve. Consider raising with the comms committee first."},
+};
+
+function buildGroup(cid,tags){
+  const el=document.getElementById(cid);
+  tags.forEach(t=>{
+    const tag=t.tag||t;
+    const lbl=document.createElement('label');
+    lbl.className='htag';lbl.dataset.tag=tag;
+    lbl.innerHTML='<input type="checkbox" value="'+tag+'" onchange="onTagChange(this)">#'+tag;
+    el.appendChild(lbl);
+  });
+}
+buildGroup('tg-core',TAGS_CORE);
+buildGroup('tg-policy',TAGS_POLICY);
+buildGroup('tg-branch',TAGS_BRANCH);
+buildPolicyLinkChips();
+// preselect core tags
+['auspol','fusionparty'].forEach(tag=>{
+  const inp=document.querySelector('#tg-core .htag[data-tag="'+tag+'"] input');
+  if(inp){inp.checked=true;inp.closest('label').classList.add('on');}
+});
+
+const SOCIAL_PLATFORMS=["Facebook", "Twitter/X", "Instagram", "Mastodon", "LinkedIn"];
+function onAllSocialChange(){
+  const on=document.getElementById('dest-allsocial').checked;
+  document.querySelectorAll('#dest-grid input[type=checkbox]').forEach(inp=>{
+    if(SOCIAL_PLATFORMS.includes(inp.value)){
+      inp.checked=on;
+      inp.closest('label').classList.toggle('on',on);
+    }
+  });
+  onDestChange();
+}
+function onDestChange(){
+  document.querySelectorAll('.dest-chip').forEach(c=>c.classList.toggle('on',c.querySelector('input').checked));
+  // sync all-social chip
+  const allTicked=SOCIAL_PLATFORMS.every(p=>!!document.querySelector('#dest-grid input[value="'+p+'"]')?.checked);
+  const allSocialInp=document.getElementById('dest-allsocial');
+  if(allSocialInp){allSocialInp.checked=allTicked;document.getElementById('chip-allsocial').classList.toggle('on',allTicked);}
+  document.querySelectorAll('.pnote').forEach(n=>n.classList.remove('visible'));
+  liveCount();
+  getDests().forEach(d=>{
+    const id='pnote-'+d.replace('/X','').replace('/','-');
+    const el=document.getElementById(id)||document.getElementById('pnote-'+d.split('/')[0]);
+    if(el)el.classList.add('visible');
+  });
+  liveCount();
+}
+function getDests(){return[...document.querySelectorAll('#dest-grid input:checked')].map(i=>i.value)}
+
+function onTagChange(inp){
+  inp.closest('label').classList.toggle('on',inp.checked);
+  liveCount();
+}
+function getSelectedTags(){
+  const t=[...document.querySelectorAll('.htag input:checked')].map(i=>'#'+i.value);
+  return t.concat(customTags);
+}
+
+const customTags=[];
+function addCustomTag(){
+  let v=document.getElementById('new-tag').value.trim();
+  if(!v)return;
+  if(!v.startsWith('#'))v='#'+v;
+  if(!customTags.includes(v)){customTags.push(v);renderCustomTags();}
+  document.getElementById('new-tag').value='';
+  document.getElementById('new-tag').focus();
+}
+function removeCustomTag(t){const i=customTags.indexOf(t);if(i>-1)customTags.splice(i,1);renderCustomTags();}
+function renderCustomTags(){
+  document.getElementById('custom-tags').innerHTML=customTags.map(t=>
+    '<span class="ctag" data-tag="'+t+'">'+t+'<button onclick="removeCustomTag(\''+t+'\')">\xd7</button></span>'
+  ).join('');
+}
+function onTagKey(e){if(e.key==='Enter'){e.preventDefault();addCustomTag();}}
+
+
+function importJSON(){
+  const raw=document.getElementById('import-input').value.trim();
+  const err=document.getElementById('import-error');
+  err.className='import-error';
+  let data;
+  try{ data=JSON.parse(raw); }
+  catch(e){ err.textContent='Invalid JSON: '+e.message; err.className='import-error visible'; return; }
+
+  // Warn on format mismatch but don't block
+  if(data.format_uuid&&data.format_uuid!==FORMAT_UUID){
+    err.textContent='Warning: this JSON was generated with a different format version ('+data.format_uuid+') and may not import perfectly.';
+    err.className='import-error visible';
+    err.style.color='var(--warn)';
+  }
+
+  // Destinations
+  document.querySelectorAll('#dest-grid input[type=checkbox]').forEach(i=>{i.checked=false;i.closest('label').classList.remove('on');});
+  if(data.destinations){
+    if(data.destinations.includes('All Social Media')){
+      const inp=document.getElementById('dest-allsocial');
+      if(inp){inp.checked=true;inp.closest('label').classList.add('on');onAllSocialChange();}
+    } else {
+      data.destinations.forEach(d=>{
+        const inp=document.querySelector('#dest-grid input[value="'+d+'"]');
+        if(inp){inp.checked=true;inp.closest('label').classList.add('on');}
+      });
+    }
+    onDestChange();
+  }
+
+  // Commentary
+  if(data.commentary!=null) document.getElementById('commentary').value=data.commentary;
+
+  // Article link
+  if(data.article_link!=null) document.getElementById('article-link').value=data.article_link||'';
+
+  // Policy links — tick matching chips
+  document.querySelectorAll('#policy-link-grid input[type=checkbox]').forEach(i=>{i.checked=false;i.closest('label').classList.remove('on');});
+  if(data.policy_links){
+    data.policy_links.forEach(url=>{
+      const inp=document.querySelector('#policy-link-grid input[value="'+url+'"]');
+      if(inp){inp.checked=true;inp.closest('label').classList.add('on');}
+    });
+  }
+
+  // Hashtags — tick predefined, add rest as custom
+  document.querySelectorAll('.htag input[type=checkbox]').forEach(i=>{i.checked=false;i.closest('label').classList.remove('on');});
+  customTags.length=0;
+  if(data.hashtags){
+    data.hashtags.forEach(t=>{
+      const inp=document.querySelector('.htag input[value="'+t+'"]');
+      if(inp){inp.checked=true;inp.closest('label').classList.add('on');}
+      else{ const tag='#'+t; if(!customTags.includes(tag))customTags.push(tag); }
+    });
+    renderCustomTags();
+  }
+
+  // Sensitivity
+  if(data.sensitivity) document.getElementById('content-type').value=data.sensitivity;
+  onContentType();
+
+  // Self approve
+  if(data.self_approve!=null) document.getElementById('self-approve').checked=data.self_approve;
+
+  // Clear input and update counts
+  document.getElementById('import-input').value='';
+  liveCount();
+  updatePlinkOptions();
+
+  // Close the details panel
+  document.querySelector('details:has(#import-input)').removeAttribute('open');
+}
+
+function buildPolicyLinkChips(){
+  const grid=document.getElementById('policy-link-grid');
+  TAGS_POLICY.filter(p=>p.url&&p.url!=='https://www.fusionparty.org.au/policy').forEach(p=>{
+    const lbl=document.createElement('label');
+    lbl.className='dest-chip';
+    lbl.title=p.url;
+    lbl.innerHTML='<input type="checkbox" value="'+p.url+'" onchange="onPolicyLinkChange(this)"><span class="dot"></span>#'+p.tag;
+    grid.appendChild(lbl);
+  });
+}
+function onPolicyLinkChange(inp){
+  inp.closest('label').classList.toggle('on',inp.checked);
+  liveCount();
+}
+function getPolicyLinks(){
+  return [...document.querySelectorAll('#policy-link-grid input:checked')].map(i=>i.value);
+}
+
+const FORMAT_UUID='3f8b0afd-7c29-42cf-b7a7-eefb0bb57ac1';
+function genUUID(){
+  return 'xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx'.replace(/[xy]/g,c=>{
+    const r=Math.random()*16|0;
+    return(c==='x'?r:(r&0x3|0x8)).toString(16);
+  });
+}
+function buildPostParts(){
+  const commentary=document.getElementById('commentary').value.trim();
+  const policyLinks=getPolicyLinks();
+  const artLink=document.getElementById('article-link').value.trim();
+  const tags=getSelectedTags();
+  // Label prefixes + links collected separately for URL-aware counting
+  const labeledLinks=policyLinks.map(u=>({label:'See our policy here: ',url:u}));
+  if(artLink)labeledLinks.push({label:'',url:artLink});
+  return {commentary,labeledLinks,artLink,tags};
+}
+function computePostLength(){
+  const {commentary,labeledLinks,artLink,tags}=buildPostParts();
+  let s=commentary;
+  labeledLinks.forEach(({label,url})=>{s+='\n'+label+url;});
+  if(tags.length)s+='\n'+tags.join(' ');
+  return s.length;
+}
+// Twitter counts URLs as 23 chars each (t.co wrapping), everything else verbatim
+function computeTwitterLength(){
+  const TW_URL_LEN=23;
+  const {commentary,labeledLinks,artLink,tags}=buildPostParts();
+  let n=commentary.length;
+  labeledLinks.forEach(({label,url})=>{n+=1+label.length+TW_URL_LEN;});
+  if(tags.length)n+=1+tags.join(' ').length;
+  return n;
+}
+function liveCount(){
+  const n=computePostLength();
+  const dests=getDests();
+  const hasTw=dests.includes('Twitter/X');
+  const haMa=dests.includes('Mastodon');
+  document.getElementById('cb-total').textContent=n;
+  const tw=document.getElementById('cb-tw');
+  const ma=document.getElementById('cb-ma');
+  if(hasTw){
+    const twn=computeTwitterLength();
+    document.getElementById('cb-tw-n').textContent=twn+' (URLs→t.co)';
+    tw.className='cb-plat'+(twn>280?' over':twn>240?' warn':' ok');
+  } else {
+    tw.className='cb-plat';
+  }
+  if(haMa){
+    document.getElementById('cb-ma-n').textContent=n;
+    ma.className='cb-plat'+(n>500?' over':n>440?' warn':' ok');
+  } else {
+    ma.className='cb-plat';
+  }
+}
+
+
+function buildBotData(){
+  const dests=getDests();
+  const commentary=document.getElementById('commentary').value.trim();
+  const policyLinks=getPolicyLinks();
+  const artLink=document.getElementById('article-link').value.trim();
+  const tags=getSelectedTags().map(t=>t.replace(/^#/,''));
+  const selfApp=document.getElementById('self-approve').checked;
+  const ct=document.getElementById('content-type').value||null;
+  const botDests=dests.includes('All Social Media')?['All Social Media']:dests;
+  return {format_uuid:FORMAT_UUID,message_uuid:genUUID(),requested_at:new Date().toISOString(),destinations:botDests,commentary,policy_links:policyLinks.length?policyLinks:null,article_link:artLink||null,hashtags:tags,sensitivity:ct||null,self_approve:selfApp};
+}
+
+function toJSON(obj){
+  const clean={};
+  for(const[k,v] of Object.entries(obj)){
+    if(v===null||v===undefined)continue;
+    if(Array.isArray(v)&&!v.length)continue;
+    clean[k]=v;
+  }
+  return JSON.stringify(clean);
+}
+function buildOutputText(){
+  const dests=getDests();
+  const commentary=document.getElementById('commentary').value.trim();
+  const policyLinks=getPolicyLinks();
+  const artLink=document.getElementById('article-link').value.trim();
+  const tags=getSelectedTags();
+  const notes=document.getElementById('notes').value.trim();
+  const selfApp=document.getElementById('self-approve').checked;
+
+  const destStr=dests.includes('All Social Media')?'All Social Media':dests.join(', ');
+  const ct=document.getElementById('content-type').value;
+  const sensitiveWarning=ct==='high'?'\n**Warning: This content touches on a sensitive topic. Reviewers should carefully consider reputational risk, potential media blowback, and whether this aligns with Fusion\'s public position before approving.**':'';
+  const approvalNote=ct&&APPROVAL[ct]?APPROVAL[ct].emoji+' **'+APPROVAL[ct].label+'** — '+APPROVAL[ct].title+sensitiveWarning+(selfApp?' \u2014 self-approving, one more needed':''):selfApp?'\u2139\ufe0f Self-approving \u2014 one additional approval needed':'';
+  let header='@authnational \u2014 Auth request for '+destStr;
+  if(approvalNote)header+='\n'+approvalNote;
+  if(notes)header+='\n\n'+notes;
+
+  let post=commentary;
+  if(artLink)post+='\n'+artLink;
+  getPolicyLinks().forEach(u=>{post+='\nSee our policy here: '+u;});
+  if(tags.length)post+='\n'+tags.join(' ');
+
+  const botBlock='```json\n'+toJSON(buildBotData())+'\n```';
+  const bareUrl=artLink?'\n'+artLink:'';
+  return header+bareUrl+'\n```\n'+post+'\n```\n'+botBlock;
+}
+function updateBotBlock(){
+  if(!document.getElementById('output-sec').classList.contains('visible'))return;
+  document.getElementById('output-body').textContent=buildOutputText();
+}
+
+function onContentType(){
+  const v=document.getElementById('content-type').value;
+  const box=document.getElementById('approval-advice');
+  if(!v||!APPROVAL[v]){box.className='approval-advice';box.innerHTML='Select a content type to see approval guidance.';return;}
+  const a=APPROVAL[v];
+  box.className='approval-advice '+a.cls;
+  box.innerHTML='<strong>'+a.title+'</strong>'+a.body;
+  document.getElementById('self-approve').checked=(a.cls==='ok');
+}
+function generate(){
+  const dests=getDests();
+  const commentary=document.getElementById('commentary').value.trim();
+  const policyLinks=getPolicyLinks();
+  const artLink=document.getElementById('article-link').value.trim();
+  const notes=document.getElementById('notes').value.trim();
+  const selfApp=document.getElementById('self-approve').checked;
+  const tags=getSelectedTags();
+  if(!dests.length){alert('Please select at least one destination.');return;}
+  if(!commentary){alert('Please enter the commentary text.');return;}
+  document.getElementById('output-body').textContent=buildOutputText();
+  const needsImg=dests.includes('Facebook')||dests.includes('Instagram');
+  document.getElementById('output-notice').style.display=needsImg?'block':'none';
+  document.getElementById('ck-screenshot').style.display=needsImg?'flex':'none';
+  document.getElementById('ck-self').style.display=selfApp?'flex':'none';
+  const out=document.getElementById('output-sec');
+  out.classList.add('visible');
+  document.getElementById('checklist').classList.add('visible');
+  document.getElementById('copy-btn').textContent='Copy';
+  document.getElementById('copy-btn').classList.remove('copied');
+  out.scrollIntoView({behavior:'smooth',block:'start'});
+  updateBotBlock();
+}
+function copyOutput(){
+  navigator.clipboard.writeText(document.getElementById('output-body').textContent).then(()=>{
+    const b=document.getElementById('copy-btn');
+    b.textContent='Copied \u2713';b.classList.add('copied');
+    setTimeout(()=>{b.textContent='Copy';b.classList.remove('copied');},2000);
+  });
+}
+</script>
+</body>
+</html>

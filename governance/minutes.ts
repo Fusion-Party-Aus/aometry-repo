@@ -53,7 +53,7 @@ const command: Command = {
         ORDER BY created_at ASC
     `
       )
-      .all(startDateStr);
+      .all(startDateStr) as any[];
 
     const motions = db
       .prepare(
@@ -63,7 +63,7 @@ const command: Command = {
         ORDER BY created_at ASC
     `
       )
-      .all(startDateStr);
+      .all(startDateStr) as any[];
 
     // Format Text Report
     let report = `# Committee Minutes (Since ${start.format(
@@ -88,7 +88,7 @@ const command: Command = {
           .prepare(
             "SELECT vote, count(*) as count FROM motion_votes WHERE motion_id = ? GROUP BY vote"
           )
-          .all(m.id);
+          .all(m.id) as any[];
         const resultStr = votes
           .map((v: any) => `${v.vote}: ${v.count}`)
           .join(", ");

@@ -1,6 +1,6 @@
 /**
  * NCAP Submission Command
- * Per Constitution Rule 49(2) - NCAP Submission Requirements
+ * Slash command and context menu to open the NCAP submission modal
  */
 
 import {
@@ -75,7 +75,7 @@ const command: Command = {
       .setCustomId(`ncap_submit_${category}_${Date.now()}`)
       .setTitle("NCAP Submission");
 
-    // Title field (per Rule 49(2)(b)(i))
+    // Title field
     const titleRow = new ActionRowBuilder<TextInputBuilder>().addComponents(
       new TextInputBuilder()
         .setCustomId("title")
@@ -86,7 +86,7 @@ const command: Command = {
         .setMaxLength(200)
     );
 
-    // Description field (per Rule 49(2)(b)(i))
+    // Description field
     const descriptionRow = new ActionRowBuilder<TextInputBuilder>().addComponents(
       new TextInputBuilder()
         .setCustomId("description")
@@ -97,7 +97,7 @@ const command: Command = {
         .setMaxLength(2000)
     );
 
-    // Rationale field (per Rule 49(2)(b)(vi))
+    // Rationale field
     const rationaleRow = new ActionRowBuilder<TextInputBuilder>().addComponents(
       new TextInputBuilder()
         .setCustomId("rationale")
@@ -119,7 +119,7 @@ const command: Command = {
         .setMaxLength(100)
     );
 
-    // Links to supporting documents (per Rule 49(2)(b)(vii))
+    // Links to supporting documents
     const linksRow = new ActionRowBuilder<TextInputBuilder>().addComponents(
       new TextInputBuilder()
         .setCustomId("links")

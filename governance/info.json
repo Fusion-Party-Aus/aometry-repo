@@ -18,10 +18,15 @@
       "path": "motions/propose.ts", 
       "description": "Propose a formal committee motion" 
     },
-    { 
-      "name": "generate-minutes", 
-      "path": "minutes.ts", 
-      "description": "Generate committee minutes for a date range" 
+    {
+      "name": "generate-minutes",
+      "path": "minutes.ts",
+      "description": "Generate committee minutes for a date range"
+    },
+    {
+      "name": "authpost",
+      "path": "social-auth/submit.ts",
+      "description": "Submit social media content for #auth-socmed approval"
     }
   ],
   "events": [
