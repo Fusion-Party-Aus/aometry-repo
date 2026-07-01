@@ -635,10 +635,7 @@ function createAuthPostEmbed(
   if (timerCalc.gantryState === GantryState.NATURAL_APPROVAL) gantryStatus = "🟢 Natural Approval";
   else if (timerCalc.gantryState === GantryState.OBJECTION) gantryStatus = "🔴 Objection Gantry";
 
-  let post = submission.content.commentary;
-  if (submission.content.articleLink) post += `\n${submission.content.articleLink}`;
-  submission.content.policyLinks.forEach(u => { post += `\nSee our policy here: ${u}`; });
-  if (submission.content.hashtags.length) post += `\n${submission.content.hashtags.map(t => `#${t}`).join(" ")}`;
+  const post = composePostText(submission.content);
 
   const embed = new EmbedBuilder()
     .setTitle(`Auth Post: ${submission.id}`)
