@@ -198,6 +198,12 @@ export interface SocialAuthSubmission {
   scheduledAt?: Date;         // Intended Fedica post time (defaults to next weekday 9am AEST)
   fedicaScheduledAt?: Date;   // Confirmed schedule time returned by Fedica API
 
+  // AI risk assessment (populated on submission if LLM_API_KEY is configured)
+  aiRiskVerdict?: 'agree' | 'escalate' | 'downgrade';
+  aiSuggestedSensitivity?: Sensitivity;
+  aiRiskSummary?: string;
+  aiRiskFlags?: { severity: 'info' | 'warning' | 'critical'; reason: string; policyReference?: string }[];
+
   // Discord integration
   channelId: string;
   messageId: string;
