@@ -2,7 +2,7 @@
 
 Fusion Party governance plugins for the [Aometry](https://github.com/Axion-AU/Aometry) Discord bot (owned by Axion Ventures, not affiliated with Fusion Party). This repo is public so plugins can be developed and typechecked independently; the private Aometry host imports them at runtime.
 
-**This is not a runnable bot on its own.** There's no `client.login()`, no start script — just plugin source, typechecked against stub types, that a separate private Aometry host loads and actually executes. See [Architecture](#architecture) below for how the two connect. Aometry's own docs (`docs/SPEC_SHEET.md`) describe this exact extension, confirming it's the intended "Fusion Governance Module" for that host.
+**This is not a runnable bot on its own.** There's no `client.login()`, no start script — just plugin source, typechecked against stub types, that a separate private Aometry host loads and actually executes. See [Architecture](#architecture) below for how the two connect. Aometry's own docs ([`docs/SPEC_SHEET.md`](https://github.com/Axion-AU/Aometry/blob/main/docs/SPEC_SHEET.md)) describe this exact extension, confirming it's the intended "Fusion Governance Module" for that host.
 
 ## Plugins
 

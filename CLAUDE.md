@@ -9,7 +9,7 @@ Public Aometry module repository providing Fusion Party governance plugins for t
 - `host-stubs/` (see below) exists purely to give `tsc` something to resolve `@/*` imports against; those types are placeholders, not real Discord.js wiring.
 - Every `interaction.ts`/`timer.ts` across every module is explicitly untested here and documented as "not yet wired to a Discord event listener" — that wiring (`client.on(...)`, command registration) can only happen in the private host, since this repo has no running process to attach a listener to.
 
-Aometry's own docs (`docs/SPEC_SHEET.md` in [Axion-AU/Aometry](https://github.com/Axion-AU/Aometry)) describe this exact extension — titled "AOMETRY EXTENSION SPEC: FUSION GOVERNANCE MODULE" — confirming this repo is the intended "Fusion Governance Module" plugin for that host, not an unrelated or forked project.
+Aometry's own docs ([`docs/SPEC_SHEET.md`](https://github.com/Axion-AU/Aometry/blob/main/docs/SPEC_SHEET.md)) describe this exact extension — titled "AOMETRY EXTENSION SPEC: FUSION GOVERNANCE MODULE" — confirming this repo is the intended "Fusion Governance Module" plugin for that host, not an unrelated or forked project.
 
 ## Architecture
 
