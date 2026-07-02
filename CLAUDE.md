@@ -60,6 +60,17 @@ Key files:
 - `interaction.ts` — thin glue: `handleRoleGrant` (apply a resolved change + log as `bot_grant`), `handleGuildMemberUpdate` (classify any observed role diff; log `manual_change` if it wasn't the bot's own recent grant)
 - `types.ts` — `RoleGroup`, `OnGrantTrigger`, `RoleChangeResult`, `RolePoliceAuditLog`
 
+### `governance/vanity-roles/`
+Replaces Fusion Brain's (YAGPDB) reaction-role granting in `#tag-yourself`: selecting an emoji grants the associated role. Decision-only module — grouped roles (state/movement) delegate to `governance/role-police`'s `handleRoleGrant` for the actual exclusivity/backfill/audit-log work rather than duplicating it; opt-in roles are granted/revoked directly with no exclusivity, logged through role-police's shared audit table.
+
+Per the manual: grouped-role reactions only act on **add** (grant); unreacting does nothing ("extra selections must be manually removed"). Opt-in reactions act on both add (grant) and remove (revoke).
+
+Key files:
+- `calculator.ts` — pure function: `resolveVanityReaction(emoji, added, mappings)` → `{ action, roleName? }`
+- `config.ts` — `VANITY_ROLE_MAPPINGS`: emoji → role name + `kind` (`grouped` | `opt-in`). Empty pending the real `#tag-yourself` emoji/role list.
+- `interaction.ts` — thin glue: `handleVanityReaction`, called from the host's `messageReactionAdd`/`messageReactionRemove` listeners (filtered to `#tag-yourself`)
+- `types.ts` — `VanityRoleMapping`, `VanityReactionAction`
+
 ### `governance/ChannelUtils.ts`
 Shared utility mapping Discord channel names to `ChannelCategory` enum values.
 
@@ -104,4 +115,5 @@ A test suite that only passes sunny-day scenarios gives false confidence. If a t
 - **Fedica live calls**: set `FEDICA_API_KEY` (and optionally `FEDICA_API_URL`) on the host bot. Stub mode is active until then.
 - **LLM risk assessment**: set `LLM_API_KEY` + `LLM_MODEL` (Anthropic Claude) on the host bot to enable `assessRisk()`. Optionally set `POLICY_INDEX_URL` for policy RAG retrieval. Stub mode returns `agree` always.
 - **Host-bot wiring**: see `README.md` for the three additions needed in the private Aometry host.
-- **Role Police state/movement role names**: `governance/role-police/config.ts`'s `STATE_GROUP`/`MOVEMENT_GROUP` are placeholders (empty `memberRoleNames`) pending the real role list from `#tag-yourself`. `interaction.ts` also isn't wired to any Discord events yet (no `guildMemberAdd`/reaction-add/`guildMemberUpdate` listeners registered) — that's host-bot wiring, not yet documented in README.md.
+- **Role Police state/movement role names**: `governance/role-police/config.ts`'s `STATE_GROUP`/`MOVEMENT_GROUP` are placeholders (empty `memberRoleNames`) pending the real role list from `#tag-yourself`. `interaction.ts` also isn't wired to any Discord events yet (no `guildMemberAdd`/`guildMemberUpdate` listeners registered) — that's host-bot wiring, not yet documented in README.md.
+- **Vanity Roles emoji/role mappings**: `governance/vanity-roles/config.ts`'s `VANITY_ROLE_MAPPINGS` is empty pending the real emoji list from `#tag-yourself`. `interaction.ts`'s `handleVanityReaction` also isn't wired to `messageReactionAdd`/`messageReactionRemove` listeners yet — host-bot wiring, not yet documented in README.md.
