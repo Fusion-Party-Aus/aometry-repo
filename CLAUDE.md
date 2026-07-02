@@ -1,8 +1,15 @@
 # aometry-repo
 
-Public Aometry module repository providing Fusion Party governance plugins for their Discord server. [Aometry](https://github.com/Axion-Au/Aometry) is a modular Discord bot architecture owned by Axion Ventures and not affiliated with Fusion Party. This repo extends the base Aometry bot with Fusion-specific governance workflows.
+Public Aometry module repository providing Fusion Party governance plugins for their Discord server. [Aometry](https://github.com/Axion-AU/Aometry) is a modular Discord bot architecture owned by Axion Ventures and not affiliated with Fusion Party. This repo extends the base Aometry bot with Fusion-specific governance workflows.
 
-The private Aometry host instance imports these modules at runtime; this repo exists so they can be developed and typechecked independently.
+**This repo cannot run standalone — it is a content-only plugin package, not a bot.** The private Aometry host instance imports these modules at runtime; this repo exists so plugin code can be developed and typechecked independently of that host. Concretely:
+
+- `package.json` has only `typecheck` and `test` scripts — nothing that boots a process. There's no `client.login()` anywhere in this repo.
+- `tsconfig.json` sets `"noEmit": true` — TypeScript here is checked, never compiled to runnable JS.
+- `host-stubs/` (see below) exists purely to give `tsc` something to resolve `@/*` imports against; those types are placeholders, not real Discord.js wiring.
+- Every `interaction.ts`/`timer.ts` across every module is explicitly untested here and documented as "not yet wired to a Discord event listener" — that wiring (`client.on(...)`, command registration) can only happen in the private host, since this repo has no running process to attach a listener to.
+
+Aometry's own docs (`docs/SPEC_SHEET.md` in [Axion-AU/Aometry](https://github.com/Axion-AU/Aometry)) describe this exact extension — titled "AOMETRY EXTENSION SPEC: FUSION GOVERNANCE MODULE" — confirming this repo is the intended "Fusion Governance Module" plugin for that host, not an unrelated or forked project.
 
 ## Architecture
 
@@ -17,6 +24,15 @@ Aometry host (private)      aometry-repo (this repo, public)
 Path aliases in `tsconfig.json`:
 - `@/*` → `host-stubs/*`
 - `@installed/governance/*` → `governance/*`
+
+### Module manifest — unresolved: `info.json` vs `manifest.json`
+
+Two files at the repo root both look like module-discovery manifests, with unreconciled schemas, and it's not yet confirmed which one (or both) the host actually reads:
+
+- **`info.json`** (pre-existing, predates this session) — `{ name, version, modules: [{ name, path, description }] }`. This shape matches what Aometry's own README describes as its third-party module contract.
+- **`manifest.json`** (added later, in response to a PR reviewer asking for plugin env vars to be declared) — `{ env: [{ key, description, required }] }`. Different shape, different apparent purpose (env var declarations, not module discovery), and now stale — it doesn't list the env vars introduced by the newer modules (`COMMS_CALENDAR_CHANNEL_ID`, `YOUTUBE_CHANNEL_ID`, `ANNOUNCEMENTS_CHANNEL_ID`, `EVENTS_CALENDAR_CHANNEL_ID`, `TUNED_ROLE_ID`, `GOOGLE_CALENDAR_ID`, `GOOGLE_CALENDAR_API_KEY`).
+
+Don't assume either file is authoritative until the maintainer confirms — see Pending.
 
 ## Modules
 
@@ -146,6 +162,7 @@ A test suite that only passes sunny-day scenarios gives false confidence. If a t
 
 ## Pending
 
+- **`info.json` vs `manifest.json`**: which file (if either) the Aometry host actually reads for module discovery / env var declaration is unconfirmed — see the Architecture section above. Needs a maintainer answer before either file's contents can be trusted as correct, and `manifest.json` needs its env var list brought up to date regardless once that's settled.
 - **Fedica live calls**: set `FEDICA_API_KEY` (and optionally `FEDICA_API_URL`) on the host bot. Stub mode is active until then.
 - **LLM risk assessment**: set `LLM_API_KEY` + `LLM_MODEL` (Anthropic Claude) on the host bot to enable `assessRisk()`. Optionally set `POLICY_INDEX_URL` for policy RAG retrieval. Stub mode returns `agree` always.
 - **Host-bot wiring**: see `README.md` for the three additions needed in the private Aometry host.
