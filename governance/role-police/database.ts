@@ -7,6 +7,7 @@
 import Database from 'better-sqlite3';
 import { RolePoliceAuditLog } from './types';
 
+/** Audit-log persistence for role-police. See module docblock above for scope. */
 export class RolePoliceDatabaseManager {
   private db: Database.Database;
 

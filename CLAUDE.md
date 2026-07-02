@@ -77,6 +77,10 @@ CI runs typecheck + tests on every push and pull request (`.github/workflows/typ
 
 Tests live alongside source as `*.test.ts`. Currently cover both calculator modules (timer math, gantry logic, vote rules). Discord interaction handlers and the timer service are not unit-tested — they depend on Discord.js and the background scheduler.
 
+### Docstrings
+
+CodeRabbit enforces a docstring-coverage pre-merge check on this repo (80% threshold). Every **exported** function, class, interface, and const config object needs a one-to-a-few-line `/** ... */` immediately above its declaration, stating what it does or the one non-obvious thing about it — not restating the signature. Internal/private helpers, `.test.ts` files, and vendored code (`vendor/`) are exempt; keep those comment-free per the usual "don't explain the obvious" rule. When adding a new exported symbol, add its docstring in the same commit — don't let coverage drift and get caught by CI later.
+
 ### Test-Driven Development
 
 **All new features must follow red-green TDD:**

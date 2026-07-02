@@ -15,6 +15,7 @@ import { RiskFlag } from './llm-pipeline';
 // most short, on-brand party commentary will land here and should not generate a flag.
 const SCORE_THRESHOLD = 35;
 
+/** Score composed post text and return a single info-severity RiskFlag if it reads as AI-generated, else []. */
 export function checkAiWritingStyle(text: string): RiskFlag[] {
   if (!text || text.trim().length === 0) return [];
 

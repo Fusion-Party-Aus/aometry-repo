@@ -28,11 +28,13 @@ export interface OnGrantTrigger {
   alsoGrantRoleName: string;
 }
 
+/** Role names to add/remove to apply a resolved change; returned by resolveGroupChange and resolveFullRoleChange. */
 export interface RoleChangeResult {
   toAdd: string[];
   toRemove: string[];
 }
 
+/** Result of classifyRoleDiff: whether an observed role diff matches a pending bot-applied change. */
 export type RoleDiffClassification = 'bot-applied' | 'manual' | 'no-change';
 
 /**

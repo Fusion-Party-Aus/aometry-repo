@@ -13,6 +13,7 @@ import { EmbedBuilder } from "discord.js";
 import { SocialAuthDatabaseManager } from "./database";
 import { SocialAuthSubmission, AuthPostStatus } from "./types";
 
+/** Submissions bucketed by status, as returned by groupSubmissionsByStatus. */
 export type QueueGroups = Record<AuthPostStatus, SocialAuthSubmission[]>;
 
 const QUEUE_MESSAGE_KEY = 'queue_message_id';

@@ -16,28 +16,30 @@
 
 import { RoleGroup, OnGrantTrigger } from './types';
 
+/** No placeholder — every user holds exactly one of these three by definition. */
 export const VERIFICATION_GROUP: RoleGroup = {
   id: 'verification',
   memberRoleNames: ['unverified', 'Friend', 'Member'],
-  // No placeholder — every user holds exactly one of these three by definition.
 };
 
-// TODO: populate with the real state role names from #tag-yourself.
+/** TODO: populate with the real state role names from #tag-yourself. */
 export const STATE_GROUP: RoleGroup = {
   id: 'state',
   memberRoleNames: [],
   placeholderRoleName: 'no state',
 };
 
-// TODO: populate with the real movement role names from #tag-yourself.
+/** TODO: populate with the real movement role names from #tag-yourself. */
 export const MOVEMENT_GROUP: RoleGroup = {
   id: 'movement',
   memberRoleNames: [],
   placeholderRoleName: 'no movement',
 };
 
+/** All configured exclusivity groups, passed to resolveFullRoleChange by interaction.ts. */
 export const ROLE_GROUPS: RoleGroup[] = [VERIFICATION_GROUP, STATE_GROUP, MOVEMENT_GROUP];
 
+/** Cross-group side effects fired on grant, per the Operations Manual's role-setting rules. */
 export const GRANT_TRIGGERS: OnGrantTrigger[] = [
   // "A user receiving the @unverified role is also automatically assigned @no state."
   { whenRoleName: 'unverified', alsoGrantRoleName: 'no state' },

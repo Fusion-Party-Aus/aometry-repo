@@ -17,6 +17,7 @@ import {
 } from './types';
 import { calculateDynamicTimer } from './calculator';
 
+/** SQLite persistence for the #auth-socmed submission lifecycle. See module docblock above for scope. */
 export class SocialAuthDatabaseManager {
   private db: Database.Database;
 

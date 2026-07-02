@@ -150,6 +150,7 @@ export function weightedTweetLength(text: string): number {
 export { composePostText } from './content';
 import { composePostText } from './content';
 
+/** A destination-constraint finding from validatePostForDestinations. 'error' blocks submission; 'warning' is advisory. */
 export interface ValidationIssue {
   severity: 'error' | 'warning';
   message: string;
@@ -178,6 +179,7 @@ export function validatePostForDestinations(content: PostContent, destinations: 
   return issues;
 }
 
+/** Build the Fedica API payload from a submission, resolving scheduledAt to the default when unset. */
 export function buildFedicaPayload(submission: SocialAuthSubmission): FedicaPublishPayload {
   const { content, destinations } = submission;
 

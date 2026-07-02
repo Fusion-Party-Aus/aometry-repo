@@ -134,6 +134,7 @@ export function checkInstantResolution(
   return null;
 }
 
+/** Minutes remaining until submission.expiresAt, clamped to 0 (never negative). */
 export function getTimeRemaining(submission: SocialAuthSubmission): number {
   if (!submission.expiresAt) return 0;
   const remainingMs = new Date(submission.expiresAt).getTime() - Date.now();
@@ -262,6 +263,7 @@ export function isHoldPublishDue(holdUntil: Date | undefined): boolean {
   return holdUntil.getTime() <= Date.now();
 }
 
+/** Human-readable duration, e.g. "45m", "3h 20m", "2d 4h" — precision drops as the span grows. */
 export function formatTimerDuration(minutes: number): string {
   if (minutes < 60) return `${Math.round(minutes)}m`;
   if (minutes < 1440) {
@@ -274,6 +276,7 @@ export function formatTimerDuration(minutes: number): string {
   return hours > 0 ? `${days}d ${hours}h` : `${days}d`;
 }
 
+/** One-line debug summary of a TimerCalculation — timer, approval/objection rates, gantry state. */
 export function formatTimerCalculation(calc: TimerCalculation): string {
   return `Timer: ${formatTimerDuration(calc.clampedTimerMinutes)} | ` +
     `Approval: ${(calc.approvalRate * 100).toFixed(1)}% | ` +

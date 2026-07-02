@@ -32,6 +32,7 @@ import { Destination, PostContent, Sensitivity } from './types';
 import { composePostText } from './content';
 import { checkAiWritingStyle } from './ai-writing-style';
 
+/** Credentials/model selection for live LLM calls; unused while assessRisk() is stubbed. */
 export interface LlmPipelineConfig {
   apiKey: string;
   model: string;
@@ -42,14 +43,17 @@ export interface LlmPipelineConfig {
 // Stage 0: Risk assessment
 // ---------------------------------------------------------------------------
 
+/** Input to assessRisk(): the content being evaluated and the submitter's declared sensitivity. */
 export interface RiskAssessmentRequest {
   content: PostContent;
   destinations: Destination[];
   submitterSensitivity: Sensitivity;   // What the submitter declared
 }
 
+/** assessRisk()'s verdict: agree (no change), escalate (binding), or downgrade (advisory only). */
 export type RiskVerdict = 'agree' | 'escalate' | 'downgrade';
 
+/** A single risk/style finding attached to a RiskAssessmentResult. */
 export interface RiskFlag {
   severity: 'info' | 'warning' | 'critical';
   reason: string;                        // Human-readable explanation
@@ -57,6 +61,7 @@ export interface RiskFlag {
   policyUrl?: string;
 }
 
+/** Full output of assessRisk() — shown as an annotation on the #auth-socmed embed. */
 export interface RiskAssessmentResult {
   verdict: RiskVerdict;
   suggestedSensitivity: Sensitivity;    // May match or differ from submitterSensitivity
@@ -109,11 +114,13 @@ export async function assessRisk(
 // Types
 // ---------------------------------------------------------------------------
 
+/** Input to researchTopics() — currently a stub returning an empty list. */
 export interface TopicResearchRequest {
   keywords?: string[];          // Optional seed keywords; omit to surface trending topics
   maxResults?: number;          // Default 5
 }
 
+/** A single candidate topic surfaced by researchTopics(). */
 export interface TopicResult {
   headline: string;
   summary: string;
@@ -121,6 +128,7 @@ export interface TopicResult {
   relevanceScore: number;       // 0–1, higher = more relevant to party mission
 }
 
+/** A policy/brand-voice excerpt retrieved by retrievePolicyGrounding() for RAG grounding. */
 export interface PolicyExcerpt {
   policyTitle: string;
   excerpt: string;
@@ -128,6 +136,7 @@ export interface PolicyExcerpt {
   relevanceScore: number;
 }
 
+/** Input to generateDraft() — currently a stub returning placeholder content. */
 export interface DraftRequest {
   topic: string;                // The issue or news event to comment on
   destinations: Destination[];
@@ -136,6 +145,7 @@ export interface DraftRequest {
   maxLength?: number;           // Max character count for commentary; default 280
 }
 
+/** Output of generateDraft() — content is shaped to feed directly into SocialAuthSubmissionRequest. */
 export interface DraftResult {
   content: PostContent;         // Ready to pass to SocialAuthSubmissionRequest.content
   policyGrounding: PolicyExcerpt[];

@@ -60,6 +60,7 @@ export interface SensitivityConfig {
   initialTimerMinutes: number;
 }
 
+/** Per-tier approval/timer defaults. The maintainability lever for sensitivity behaviour. */
 export const SENSITIVITY_CONFIG: Record<Sensitivity, SensitivityConfig> = {
   [Sensitivity.LOW]: { label: 'Low', requiredApprovals: 1, allowSelfApprove: true, initialTimerMinutes: 240 },
   [Sensitivity.MEDIUM]: { label: 'Medium', requiredApprovals: 2, allowSelfApprove: false, initialTimerMinutes: 240 },

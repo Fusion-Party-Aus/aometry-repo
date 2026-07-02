@@ -17,6 +17,7 @@ import { AuthPostStatus, GantryState, TIMER_CONSTANTS } from "./types";
 
 const CHECK_INTERVAL_MS = TIMER_CONSTANTS.UPDATE_INTERVAL_MS;
 
+/** Initialise the standing queue message and start the 60s polling loop. Call once on bot ready. */
 export function startSocialAuthTimerService(client: BotClient) {
   console.log("[Social Auth Timer Service] Started background timer service");
 
