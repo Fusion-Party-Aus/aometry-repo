@@ -161,6 +161,7 @@ A test suite that only passes sunny-day scenarios gives false confidence. If a t
 
 ## Pending
 
+- **PR scope**: the bot-replacement modules (`role-police`, `vanity-roles`, `comms-calendar`, `youtube-announcements`, `events-calendar`) landed in the same PR as the original social-auth hardening. They're fully decoupled from social-auth's changes, so splitting them into a separate PR is straightforward if a smaller review surface is preferred — genuinely the maintainer's call, not a technical question, currently open on the PR thread with no other blockers behind it.
 - **Fedica live calls**: set `FEDICA_API_KEY` (and optionally `FEDICA_API_URL`) on the host bot. Stub mode is active until then.
 - **LLM risk assessment**: set `LLM_API_KEY` + `LLM_MODEL` (Anthropic Claude) on the host bot to enable `assessRisk()`. Optionally set `POLICY_INDEX_URL` for policy RAG retrieval. Stub mode returns `agree` always.
 - **Host-bot wiring**: see `README.md` for the additions needed in the private Aometry host — none of `role-police`, `vanity-roles`, `comms-calendar`, `youtube-announcements`, or `events-calendar` are wired to a live Discord event yet (no `client.on(...)` registrations).
