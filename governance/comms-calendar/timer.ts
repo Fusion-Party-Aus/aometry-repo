@@ -15,7 +15,13 @@ const MESSAGE_KEY = "comms_calendar_message_id";
 const CHECK_INTERVAL_MS = 24 * 60 * 60 * 1000; // Daily is enough for a weekly-granularity display.
 
 /** Find or create the standing #comms-cal message, then start the daily refresh loop. */
-export function startCommsCalendarService(client: BotClient, channelId: string) {
+export function startCommsCalendarService(client: BotClient) {
+  const channelId = process.env.COMMS_CALENDAR_CHANNEL_ID;
+  if (!channelId) {
+    console.log("[Comms Calendar] COMMS_CALENDAR_CHANNEL_ID not set — service disabled.");
+    return;
+  }
+
   void initMessage(client, channelId).then(() => refreshMessage(client, channelId));
   setInterval(() => {
     void refreshMessage(client, channelId);

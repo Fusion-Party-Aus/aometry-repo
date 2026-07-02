@@ -57,7 +57,8 @@ Key files:
 - `calculator.ts` — pure functions: `resolveGroupChange` (single-role exclusivity), `resolveFullRoleChange` (chains grant triggers through the exclusivity engine), `classifyRoleDiff` (bot-applied vs. manual vs. no-change, used for audit logging)
 - `config.ts` — the maintainability lever: `ROLE_GROUPS` and `GRANT_TRIGGERS` by role **name** (not snowflake ID, same convention as `ChannelUtils.ts`). Adding/removing a state or movement role is a one-line edit here, no logic touched. `STATE_GROUP`/`MOVEMENT_GROUP` member lists are TODO — the manual documents the mechanism but not the actual role names; fill in from the live `#tag-yourself` role list before wiring to a guild.
 - `database.ts` — `RolePoliceDatabaseManager`: `addAuditLog`/`getAuditLog` (audit trail only — Discord itself is the source of truth for role state), `getRecentManualChanges` for an ops-visibility view
-- `interaction.ts` — thin glue: `handleRoleGrant` (apply a resolved change + log as `bot_grant`), `handleGuildMemberUpdate` (classify any observed role diff; log `manual_change` if it wasn't the bot's own recent grant)
+- `interaction.ts` — thin glue: `handleRoleGrant` (apply a resolved change + log as `bot_grant`), `handleGuildJoin` (join-time `@unverified` grant, per the manual's "Initial Role-Setting"), `handleGuildMemberUpdate` (classify any observed role diff; log `manual_change` if it wasn't the bot's own recent grant)
+- `opt-out.ts` — `/rejectstates` replacement (`?rejectstates` in the manual): grants `@opt-out-states`, blocked in `#lobby-and-rules`. No new logic — `opt-out-states` is a `STATE_GROUP` member, so `handleRoleGrant` already applies state exclusivity to it.
 - `types.ts` — `RoleGroup`, `OnGrantTrigger`, `RoleChangeResult`, `RolePoliceAuditLog`
 
 ### `governance/vanity-roles/`
@@ -70,6 +71,39 @@ Key files:
 - `config.ts` — `VANITY_ROLE_MAPPINGS`: emoji → role name + `kind` (`grouped` | `opt-in`). Empty pending the real `#tag-yourself` emoji/role list.
 - `interaction.ts` — thin glue: `handleVanityReaction`, called from the host's `messageReactionAdd`/`messageReactionRemove` listeners (filtered to `#tag-yourself`)
 - `types.ts` — `VanityRoleMapping`, `VanityReactionAction`
+
+### `governance/comms-calendar/`
+Replaces Chronicle Bot's comms calendar function: a standing `#comms-cal` embed showing internationally recognised days of significance due in the next week.
+
+Key files:
+- `calculator.ts` — `getUpcomingSignificantDays(today, days, windowDays)`: pure date-window resolution over annually-recurring month/day entries, with year-end wraparound (a January day is found from late December).
+- `embed.ts` — `buildCommsCalendarEmbed`, pure/testable.
+- `config.ts` — `SIGNIFICANT_DAYS`: a starter set of real, fixed-date UN International Days, explicitly not comprehensive — add more as one-line entries. **v1 only supports fixed month/day observances**; movable dates (including the manual's own example, World Day of Remembrance for Road Traffic Victims, 3rd Sunday of November) are out of scope rather than approximated.
+- `database.ts` — `CommsCalendarDatabaseManager`: config-KV store for the standing message ID, same pattern as social-auth's `bot_config`.
+- `timer.ts` — thin glue, daily refresh loop.
+
+### `governance/youtube-announcements/`
+Replaces Fusion Brain's (YAGPDB) "new video → `#Announcements` post" integration. Polls the YouTube channel's public Atom feed (`youtube.com/feeds/videos.xml`) — no API key needed.
+
+Key files:
+- `calculator.ts` — `parseYoutubeFeedXml` (regex-based, not a full XML parser — the feed format is small/stable; skips malformed entries rather than throwing), `findNewVideos` (diffs against already-announced IDs, oldest-first)
+- `database.ts` — `YoutubeAnnouncementsDatabaseManager`: tracks announced video IDs so a restart never re-announces
+- `embed.ts` — `buildVideoAnnouncementEmbed`, pure/testable
+- `timer.ts` — thin glue, 15-min poll loop. `YOUTUBE_CHANNEL_ID` + `ANNOUNCEMENTS_CHANNEL_ID` env vars.
+
+### `governance/events-calendar/`
+Replaces Chronicle Bot's Events Calendar: two-way sync between Discord scheduled events and the "Fusion Public & Member Events" Google Calendar, plus the standing "Upcoming Event Schedule" embed (Appendix A's "Detailed Event Summary Template" in the manual).
+
+Google Calendar integration follows social-auth's Fedica pattern: stub mode (logs + synthetic success) when credentials aren't configured. **The write direction (Event Feed: Discord → Google) is a known gap** — a plain API key only grants read access; pushing events needs OAuth or a service account, not yet wired. See the TODO in `googleCalendar.ts`.
+
+Simplification vs. the manual: refreshes every 5 minutes instead of once daily at 8:30am — cheap to rebuild, and more frequent only improves freshness.
+
+Key files:
+- `calculator.ts` — `getUpcomingEvents` (60-day window per the manual), `isEventReminderDue` (15-min-before check), `detectEventChanges` (created/changed diff by ID, drives the `@Tuned` ping)
+- `embed.ts` — `formatEventEntry` (reproduces Appendix A's template structure), `buildUpcomingEventScheduleEmbed` ("Group By Day" style)
+- `googleCalendar.ts` — `fetchGoogleCalendarEvents` (read, stub returns `[]`), `pushEventToGoogleCalendar` (write, **not implemented live** — see TODO)
+- `database.ts` — `EventsCalendarDatabaseManager`: known-events snapshot (for change detection), reminder dedup, standing message ID
+- `timer.ts` — thin glue: `startEventsCalendarService` (poll loop), `handleDiscordEventChange` (Event Feed direction, called from the host's `guildScheduledEventCreate`/`Update` listeners)
 
 ### `governance/ChannelUtils.ts`
 Shared utility mapping Discord channel names to `ChannelCategory` enum values.
@@ -117,3 +151,8 @@ A test suite that only passes sunny-day scenarios gives false confidence. If a t
 - **Host-bot wiring**: see `README.md` for the three additions needed in the private Aometry host.
 - **Role Police state/movement role names**: `governance/role-police/config.ts`'s `STATE_GROUP`/`MOVEMENT_GROUP` are placeholders (empty `memberRoleNames`) pending the real role list from `#tag-yourself`. `interaction.ts` also isn't wired to any Discord events yet (no `guildMemberAdd`/`guildMemberUpdate` listeners registered) — that's host-bot wiring, not yet documented in README.md.
 - **Vanity Roles emoji/role mappings**: `governance/vanity-roles/config.ts`'s `VANITY_ROLE_MAPPINGS` is empty pending the real emoji list from `#tag-yourself`. `interaction.ts`'s `handleVanityReaction` also isn't wired to `messageReactionAdd`/`messageReactionRemove` listeners yet — host-bot wiring, not yet documented in README.md.
+- **Comms Calendar**: set `COMMS_CALENDAR_CHANNEL_ID` on the host bot. Not wired to a startup call yet. `SIGNIFICANT_DAYS` in `config.ts` is a starter set, not comprehensive.
+- **YouTube Announcements**: set `YOUTUBE_CHANNEL_ID` + `ANNOUNCEMENTS_CHANNEL_ID` on the host bot. Not wired to a startup call yet.
+- **Events Calendar**: set `EVENTS_CALENDAR_CHANNEL_ID`, `TUNED_ROLE_ID`, `GOOGLE_CALENDAR_ID` + `GOOGLE_CALENDAR_API_KEY` (read-only) on the host bot. The **write direction (Event Feed: Discord → Google) is not implemented** — needs OAuth or a service account, which a plain API key can't provide; see the TODO in `googleCalendar.ts`. `handleDiscordEventChange` also isn't wired to `guildScheduledEventCreate`/`Update` listeners yet.
+- **Authorisation reaction-threshold system** (manual: Fusion Brain custom command + Dyno reaction-attach, in `#authorisations-socmed`/`#authorisations-campaigns`, triggered at 3 approval reactions): **not built — genuine ambiguity, needs a decision, not a guess.** The already-built `governance/social-auth/` module implements a *different* mechanism (slash command + button/modal workflow, dynamic timer, `#auth-socmed`) for what looks like the same underlying purpose (social media post approval). Before building a second system: confirm whether `social-auth` is the intended replacement for this manual-described feature (in which case the channel-name difference is just informal drift and nothing new needs building), or whether these are genuinely two separate authorisation flows that must coexist (e.g. `#authorisations-campaigns` may need its own equivalent, since `social-auth` only covers `#auth-socmed`).
+- **RelayBot (channel bridging)**: **not built — the manual itself says "(Details TBD)"** for this feature. Nothing to implement against yet; revisit once the actual bridging rules are documented.
