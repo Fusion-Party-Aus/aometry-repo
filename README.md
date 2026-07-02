@@ -8,6 +8,32 @@ Fusion Party governance plugins for the [Aometry](https://github.com/Axion-Au/Ao
 |--------|---------|---------|
 | `governance/ncap/` | `#ncap` | Negative Consent Approval Protocol — submit motions, vote, expire |
 | `governance/social-auth/` | `#auth-socmed` | Social media post authorisation — submit, approve, publish to Fedica |
+| `governance/role-police/` | `#tag-yourself` etc. | Role exclusivity groups, placeholder backfill, `/rejectstates` opt-out |
+| `governance/vanity-roles/` | `#tag-yourself` | Reaction → role granting, delegates exclusivity to role-police |
+| `governance/comms-calendar/` | `#comms-cal` | Standing embed of upcoming days of significance |
+| `governance/youtube-announcements/` | `#Announcements` | Posts when the party's YouTube channel uploads |
+| `governance/events-calendar/` | configurable | Two-way Discord ↔ Google Calendar sync + upcoming-events embed |
+
+---
+
+## Coverage vs. the Discord Bot Operations Manual
+
+This repo is being built out to replace every bot on the Fusion Discord server, tracked against the internal Operations Manual. Status as of the modules above:
+
+| Manual feature | Current bot | Repo module | Status |
+|---|---|---|---|
+| Initial `@unverified` grant on join | Fusion Brain (YAGPDB) | `role-police` (`handleGuildJoin`) | ✅ Built, not yet wired to `guildMemberAdd` |
+| State/Movement/Verification exclusivity + placeholders | Gamer (Role Police) | `role-police` | ✅ Built and tested; real state/movement role names still TODO |
+| `#tag-yourself` reaction → role grant | Fusion Brain (YAGPDB) | `vanity-roles` | ✅ Built, not yet wired; real emoji/role mappings still TODO |
+| `?rejectstates` opt-out | Dyno (Fusion Pinky) | `role-police/opt-out.ts` | ✅ Built |
+| New YouTube video → `#Announcements` | Fusion Brain (YAGPDB) | `youtube-announcements` | ✅ Built, not yet wired to a startup call |
+| `#comms-cal` days-of-significance embed | Chronicle Bot (A Big Cal) | `comms-calendar` | ✅ Built; day list is a starter set, not comprehensive |
+| Events Calendar (Google ↔ Discord sync, Upcoming Event Schedule) | Chronicle Bot (A Big Cal) | `events-calendar` | ⚠️ Built, but the Discord → Google *write* direction is stubbed only — needs OAuth/service-account credentials a plain API key can't provide |
+| Social media post authorisation (`#auth-socmed`) | — | `social-auth` | ✅ Built (predates this pass) |
+| **Reaction-threshold authorisation** (3 approval reactions in `#authorisations-socmed`/`#authorisations-campaigns`) | Fusion Brain custom command + Dyno reaction-attach | — | ❓ **Not built — ambiguous.** This may be the same thing `social-auth` already replaces under a different name/mechanism, or a genuinely separate flow that needs its own module (e.g. for `#authorisations-campaigns`, which `social-auth` doesn't cover). **Needs a maintainer decision before more code gets written here** — see `CLAUDE.md` Pending. |
+| Channel bridging | RelayBot | — | ❌ **Not built.** The manual itself says "(Details TBD)" — nothing to implement against. |
+
+`CLAUDE.md` has the file-level detail (key functions, config shape, TODOs) for each module; this table is the "what's left" view.
 
 ---
 
@@ -81,7 +107,14 @@ Without `LLM_API_KEY` the stub always returns `agree` and the pipeline proceeds 
 
 ## Host-bot wiring
 
-Three additions needed in the private Aometry host:
+> **Only `social-auth` is wired up below.** `role-police`, `vanity-roles`, `comms-calendar`,
+> `youtube-announcements`, and `events-calendar` are built and tested but not yet connected
+> to any Discord event listener in the host — see each module's entry in `CLAUDE.md`'s
+> Pending section for what's outstanding (mostly: real role/emoji/channel config, plus the
+> actual `client.on(...)` registration). Their wiring will look the same shape as below —
+> import a handler, register it against an event or command — once that config is filled in.
+
+Three additions needed in the private Aometry host for `social-auth`:
 
 ```ts
 // 1. Register the slash command
