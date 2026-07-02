@@ -48,6 +48,18 @@ Key files:
 - `submit.ts` — `/authpost` slash command with autocomplete for destinations and policy tags
 - `types.ts` — all types, `SENSITIVITY_CONFIG`, `TIMER_CONSTANTS`, `DESTINATIONS`, `POLICY_TAGS`, `HASHTAGS_CORE/BRANCH`
 
+### `governance/role-police/`
+Replaces Gamer bot's role-management functions (per the Discord Bot Operations Manual): mutual-exclusion role groups (state/movement/verification), placeholder-role backfill (`@no state`, `@no movement`), and cross-group grant triggers (`@unverified` also grants `@no state`; `@Member` also grants `@no movement`).
+
+**v1 scope is grant-triggered enforcement only** — the engine acts when a role is granted (vanity-reaction selection, join-time `@unverified`), and never auto-corrects a manually-edited role outside that flow. Manual changes are detected and logged to the audit trail for visibility, not reverted.
+
+Key files:
+- `calculator.ts` — pure functions: `resolveGroupChange` (single-role exclusivity), `resolveFullRoleChange` (chains grant triggers through the exclusivity engine), `classifyRoleDiff` (bot-applied vs. manual vs. no-change, used for audit logging)
+- `config.ts` — the maintainability lever: `ROLE_GROUPS` and `GRANT_TRIGGERS` by role **name** (not snowflake ID, same convention as `ChannelUtils.ts`). Adding/removing a state or movement role is a one-line edit here, no logic touched. `STATE_GROUP`/`MOVEMENT_GROUP` member lists are TODO — the manual documents the mechanism but not the actual role names; fill in from the live `#tag-yourself` role list before wiring to a guild.
+- `database.ts` — `RolePoliceDatabaseManager`: `addAuditLog`/`getAuditLog` (audit trail only — Discord itself is the source of truth for role state), `getRecentManualChanges` for an ops-visibility view
+- `interaction.ts` — thin glue: `handleRoleGrant` (apply a resolved change + log as `bot_grant`), `handleGuildMemberUpdate` (classify any observed role diff; log `manual_change` if it wasn't the bot's own recent grant)
+- `types.ts` — `RoleGroup`, `OnGrantTrigger`, `RoleChangeResult`, `RolePoliceAuditLog`
+
 ### `governance/ChannelUtils.ts`
 Shared utility mapping Discord channel names to `ChannelCategory` enum values.
 
@@ -88,3 +100,4 @@ A test suite that only passes sunny-day scenarios gives false confidence. If a t
 - **Fedica live calls**: set `FEDICA_API_KEY` (and optionally `FEDICA_API_URL`) on the host bot. Stub mode is active until then.
 - **LLM risk assessment**: set `LLM_API_KEY` + `LLM_MODEL` (Anthropic Claude) on the host bot to enable `assessRisk()`. Optionally set `POLICY_INDEX_URL` for policy RAG retrieval. Stub mode returns `agree` always.
 - **Host-bot wiring**: see `README.md` for the three additions needed in the private Aometry host.
+- **Role Police state/movement role names**: `governance/role-police/config.ts`'s `STATE_GROUP`/`MOVEMENT_GROUP` are placeholders (empty `memberRoleNames`) pending the real role list from `#tag-yourself`. `interaction.ts` also isn't wired to any Discord events yet (no `guildMemberAdd`/reaction-add/`guildMemberUpdate` listeners registered) — that's host-bot wiring, not yet documented in README.md.
