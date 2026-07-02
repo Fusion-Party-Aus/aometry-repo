@@ -25,14 +25,14 @@ Path aliases in `tsconfig.json`:
 - `@/*` → `host-stubs/*`
 - `@installed/governance/*` → `governance/*`
 
-### Module manifest — unresolved: `info.json` vs `manifest.json`
+### Module manifest: `info.json` and `manifest.json`
 
-Two files at the repo root both look like module-discovery manifests, with unreconciled schemas, and it's not yet confirmed which one (or both) the host actually reads:
+Two root-level files, different purposes, not actually in conflict:
 
-- **`info.json`** (pre-existing, predates this session) — `{ name, version, modules: [{ name, path, description }] }`. This shape matches what Aometry's own README describes as its third-party module contract.
-- **`manifest.json`** (added later, in response to a PR reviewer asking for plugin env vars to be declared) — `{ env: [{ key, description, required }] }`. Different shape, different apparent purpose (env var declarations, not module discovery), and now stale — it doesn't list the env vars introduced by the newer modules (`COMMS_CALENDAR_CHANNEL_ID`, `YOUTUBE_CHANNEL_ID`, `ANNOUNCEMENTS_CHANNEL_ID`, `EVENTS_CALENDAR_CHANNEL_ID`, `TUNED_ROLE_ID`, `GOOGLE_CALENDAR_ID`, `GOOGLE_CALENDAR_API_KEY`).
+- **`info.json`** — module discovery: `{ name, version, modules: [{ name, path, description }] }`, matching Aometry's documented third-party module contract (where the plugin code lives).
+- **`manifest.json`** — env var declaration: `{ env: [{ key, description, required }] }`, added at a PR reviewer's request ("we handle env modifications like this at the repo level in the manifest.json"), and kept current with every env var referenced across all modules.
 
-Don't assume either file is authoritative until the maintainer confirms — see Pending.
+Not treating this as a blocking question — the maintainer's own review comment already endorsed `manifest.json` for env var declaration, so proceeding on that basis rather than re-asking. Flag it if the field-level shape (`key`/`description`/`required`) turns out to need adjusting.
 
 ## Modules
 
@@ -65,20 +65,19 @@ Key files:
 - `types.ts` — all types, `SENSITIVITY_CONFIG`, `TIMER_CONSTANTS`, `DESTINATIONS`, `POLICY_TAGS`, `HASHTAGS_CORE/BRANCH`
 
 ### `governance/role-police/`
-Replaces Gamer bot's role-management functions (per the Discord Bot Operations Manual): mutual-exclusion role groups (state/movement/verification), placeholder-role backfill (`@no state`, `@no movement`), and cross-group grant triggers (`@unverified` also grants `@no state`; `@Member` also grants `@no movement`).
+**Scoped down from an original design that reimplemented Gamer bot's role-management logic.** Confirmed by reading the Aometry host's own source (`src/events/Member/guildMemberUpdate.ts` + `src/modules/Core/moderation/roleset.ts`) that exclusivity groups, placeholder-role backfill, and cross-group grant triggers are already natively enforced by the host's own `/roleset` feature (`UNIQUE` = exclusivity group, `GROUP` = paired grant-trigger) on every role change — the live server already has State/Movement/Verification role sets configured this way. Reimplementing that here would race the host's own enforcement and risk misclassifying its corrections as manual edits, so this module doesn't try.
 
-**v1 scope is grant-triggered enforcement only** — the engine acts when a role is granted (vanity-reaction selection, join-time `@unverified`), and never auto-corrects a manually-edited role outside that flow. Manual changes are detected and logged to the audit trail for visibility, not reverted.
+**Current scope: a shared grant/revoke + audit-log helper only.** No exclusivity computation, no role-group config, no manual-change classification.
 
 Key files:
-- `calculator.ts` — pure functions: `resolveGroupChange` (single-role exclusivity), `resolveFullRoleChange` (chains grant triggers through the exclusivity engine), `classifyRoleDiff` (bot-applied vs. manual vs. no-change, used for audit logging)
-- `config.ts` — the maintainability lever: `ROLE_GROUPS` and `GRANT_TRIGGERS` by role **name** (not snowflake ID, same convention as `ChannelUtils.ts`). Adding/removing a state or movement role is a one-line edit here, no logic touched. `STATE_GROUP`/`MOVEMENT_GROUP` member lists are TODO — the manual documents the mechanism but not the actual role names; fill in from the live `#tag-yourself` role list before wiring to a guild.
-- `database.ts` — `RolePoliceDatabaseManager`: `addAuditLog`/`getAuditLog` (audit trail only — Discord itself is the source of truth for role state), `getRecentManualChanges` for an ops-visibility view
-- `interaction.ts` — thin glue: `handleRoleGrant` (apply a resolved change + log as `bot_grant`), `handleGuildJoin` (join-time `@unverified` grant, per the manual's "Initial Role-Setting"), `handleGuildMemberUpdate` (classify any observed role diff; log `manual_change` if it wasn't the bot's own recent grant)
-- `opt-out.ts` — `/rejectstates` replacement (`?rejectstates` in the manual): grants `@opt-out-states`, blocked in `#lobby-and-rules`. No new logic — `opt-out-states` is a `STATE_GROUP` member, so `handleRoleGrant` already applies state exclusivity to it.
-- `types.ts` — `RoleGroup`, `OnGrantTrigger`, `RoleChangeResult`, `RolePoliceAuditLog`
+- `database.ts` — `RolePoliceDatabaseManager`: `addAuditLog`/`getAuditLog` (audit trail of grants/revokes this repo's own code made), `getRecentGrants` for an ops-visibility view
+- `interaction.ts` — `grantRole`/`revokeRole` (apply + log; any exclusivity/trigger cascade this causes is the host's own job), `handleGuildJoin` (join-time `@unverified` grant, per the manual's "Initial Role-Setting" — the host's own roleset GROUP trigger cascades to `@no state` automatically)
+- `opt-out.ts` — `/rejectstates` replacement (`?rejectstates` in the manual): grants `@opt-out-states`, blocked in `#lobby-and-rules`. `opt-out-states` is a member of the host's own State (UNIQUE) roleset, so the host handles the exclusivity.
+- `config.ts` — just `OPT_OUT_STATES_ROLE`, the one role name this repo's own code needs to reference
+- `types.ts` — `RolePoliceAuditLog`
 
 ### `governance/vanity-roles/`
-Replaces Fusion Brain's (YAGPDB) reaction-role granting in `#tag-yourself`: selecting an emoji grants the associated role. Decision-only module — grouped roles (state/movement) delegate to `governance/role-police`'s `handleRoleGrant` for the actual exclusivity/backfill/audit-log work rather than duplicating it; opt-in roles are granted/revoked directly with no exclusivity, logged through role-police's shared audit table.
+Replaces Fusion Brain's (YAGPDB) reaction-role granting in `#tag-yourself`: selecting an emoji grants the associated role. Decision-only module — calls `governance/role-police`'s `grantRole`/`revokeRole` purely for centralised audit logging; exclusivity for grouped roles (state/movement) is handled natively by the Aometry host once the role is granted (see role-police above), not by this repo.
 
 Per the manual: grouped-role reactions only act on **add** (grant); unreacting does nothing ("extra selections must be manually removed"). Opt-in reactions act on both add (grant) and remove (revoke).
 
@@ -162,14 +161,12 @@ A test suite that only passes sunny-day scenarios gives false confidence. If a t
 
 ## Pending
 
-- **`info.json` vs `manifest.json`**: which file (if either) the Aometry host actually reads for module discovery / env var declaration is unconfirmed — see the Architecture section above. Needs a maintainer answer before either file's contents can be trusted as correct, and `manifest.json` needs its env var list brought up to date regardless once that's settled.
 - **Fedica live calls**: set `FEDICA_API_KEY` (and optionally `FEDICA_API_URL`) on the host bot. Stub mode is active until then.
 - **LLM risk assessment**: set `LLM_API_KEY` + `LLM_MODEL` (Anthropic Claude) on the host bot to enable `assessRisk()`. Optionally set `POLICY_INDEX_URL` for policy RAG retrieval. Stub mode returns `agree` always.
-- **Host-bot wiring**: see `README.md` for the three additions needed in the private Aometry host.
-- **Role Police state/movement role names**: `governance/role-police/config.ts`'s `STATE_GROUP`/`MOVEMENT_GROUP` are placeholders (empty `memberRoleNames`) pending the real role list from `#tag-yourself`. `interaction.ts` also isn't wired to any Discord events yet (no `guildMemberAdd`/`guildMemberUpdate` listeners registered) — that's host-bot wiring, not yet documented in README.md.
-- **Vanity Roles emoji/role mappings**: `governance/vanity-roles/config.ts`'s `VANITY_ROLE_MAPPINGS` is empty pending the real emoji list from `#tag-yourself`. `interaction.ts`'s `handleVanityReaction` also isn't wired to `messageReactionAdd`/`messageReactionRemove` listeners yet — host-bot wiring, not yet documented in README.md.
-- **Comms Calendar**: set `COMMS_CALENDAR_CHANNEL_ID` on the host bot. Not wired to a startup call yet. `SIGNIFICANT_DAYS` in `config.ts` is a starter set, not comprehensive.
-- **YouTube Announcements**: set `YOUTUBE_CHANNEL_ID` + `ANNOUNCEMENTS_CHANNEL_ID` on the host bot. Not wired to a startup call yet.
-- **Events Calendar**: set `EVENTS_CALENDAR_CHANNEL_ID`, `TUNED_ROLE_ID`, `GOOGLE_CALENDAR_ID` + `GOOGLE_CALENDAR_API_KEY` (read-only) on the host bot. The **write direction (Event Feed: Discord → Google) is not implemented** — needs OAuth or a service account, which a plain API key can't provide; see the TODO in `googleCalendar.ts`. `handleDiscordEventChange` also isn't wired to `guildScheduledEventCreate`/`Update` listeners yet.
-- **Authorisation reaction-threshold system** (manual: Fusion Brain custom command + Dyno reaction-attach, in `#authorisations-socmed`/`#authorisations-campaigns`, triggered at 3 approval reactions): **not built — genuine ambiguity, needs a decision, not a guess.** The already-built `governance/social-auth/` module implements a *different* mechanism (slash command + button/modal workflow, dynamic timer, `#auth-socmed`) for what looks like the same underlying purpose (social media post approval). Before building a second system: confirm whether `social-auth` is the intended replacement for this manual-described feature (in which case the channel-name difference is just informal drift and nothing new needs building), or whether these are genuinely two separate authorisation flows that must coexist (e.g. `#authorisations-campaigns` may need its own equivalent, since `social-auth` only covers `#auth-socmed`).
+- **Host-bot wiring**: see `README.md` for the additions needed in the private Aometry host — none of `role-police`, `vanity-roles`, `comms-calendar`, `youtube-announcements`, or `events-calendar` are wired to a live Discord event yet (no `client.on(...)` registrations).
+- **Vanity Roles emoji/role mappings**: `governance/vanity-roles/config.ts`'s `VANITY_ROLE_MAPPINGS` is empty pending the real emoji list from `#tag-yourself`.
+- **Comms Calendar**: set `COMMS_CALENDAR_CHANNEL_ID` on the host bot. `SIGNIFICANT_DAYS` in `config.ts` is a starter set, not comprehensive.
+- **YouTube Announcements**: set `YOUTUBE_CHANNEL_ID` + `ANNOUNCEMENTS_CHANNEL_ID` on the host bot.
+- **Events Calendar**: set `EVENTS_CALENDAR_CHANNEL_ID`, `TUNED_ROLE_ID`, `GOOGLE_CALENDAR_ID` + `GOOGLE_CALENDAR_API_KEY` (read-only) on the host bot. The **write direction (Event Feed: Discord → Google) is not implemented** — needs OAuth or a service account, which a plain API key can't provide; see the TODO in `googleCalendar.ts`.
+- **Authorisation reaction-threshold system** (manual: Fusion Brain custom command + Dyno reaction-attach, in `#authorisations-socmed`/`#authorisations-campaigns`, triggered at 3 approval reactions): **not built.** Working assumption, not a blocker: `governance/social-auth/` (slash command + button/modal workflow, `#auth-socmed`) is treated as the intended replacement for this manual-described feature, and the channel-name difference (`#auth-socmed` vs. `#authorisations-socmed`) as informal drift rather than two separate systems. `#authorisations-campaigns` isn't covered by `social-auth` — if that turns out to need its own flow, flag it and a `social-auth`-equivalent can be scoped for it specifically, rather than blocking on this now.
 - **RelayBot (channel bridging)**: **not built — the manual itself says "(Details TBD)"** for this feature. Nothing to implement against yet; revisit once the actual bridging rules are documented.

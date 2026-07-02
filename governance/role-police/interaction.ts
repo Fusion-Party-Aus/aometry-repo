@@ -1,102 +1,61 @@
 /**
- * Role Police Discord glue. Thin by design — all rule logic lives in calculator.ts and is
- * fully unit-tested there; this file only translates Discord events into calls against it
- * and applies the result. Not unit-tested, per this repo's convention for Discord.js-bound
- * handlers (see CLAUDE.md).
+ * Role Police Discord glue. Thin by design — see types.ts's module docblock: exclusivity,
+ * placeholder backfill, and cross-group grant triggers are handled natively by the Aometry
+ * host's own `/roleset` feature, so this module doesn't compute or apply any of that. It
+ * only grants/revokes the single role a caller asks for and logs it for ops visibility.
+ * Not unit-tested, per this repo's convention for Discord.js-bound handlers.
  */
 
 import { GuildMember, Role } from "discord.js";
 import { BotClient } from "@/types/discord";
 import { RolePoliceDatabaseManager } from "./database";
-import { resolveFullRoleChange, classifyRoleDiff } from "./calculator";
-import { ROLE_GROUPS, GRANT_TRIGGERS } from "./config";
-import { RoleChangeResult } from "./types";
-
-// Recently-applied bot changes, keyed by user ID, so the guildMemberUpdate handler that
-// fires as a *result* of our own member.roles.set() call can recognise it as bot-applied
-// rather than logging it a second time as a manual change. Short TTL — only needs to
-// survive the round-trip to Discord's gateway echoing the update back to us.
-const PENDING_BOT_CHANGES = new Map<string, { expected: RoleChangeResult; appliedAt: number }>();
-const PENDING_TTL_MS = 10_000;
-
-function roleNamesOf(member: GuildMember): Set<string> {
-  return new Set(member.roles.cache.map((r: Role) => r.name));
-}
 
 function resolveRoleByName(member: GuildMember, name: string): Role | undefined {
   return member.guild.roles.cache.find((r: Role) => r.name === name);
 }
 
 /**
- * Call when a role is granted to a member (vanity-reaction selection, or the initial
- * "unverified" grant on join). Computes the full resolved change (including any chained
- * grant triggers), applies it, and logs it as a bot_grant audit entry.
+ * Grant a single role and log it. Any exclusivity/placeholder/grant-trigger cascade this
+ * causes is applied by the Aometry host's own roleset enforcement, not by this function.
  */
-export async function handleRoleGrant(member: GuildMember, grantedRoleName: string, client: BotClient) {
+export async function grantRole(member: GuildMember, roleName: string, source: string, client: BotClient) {
+  const role = resolveRoleByName(member, roleName);
+  if (!role) return;
+
+  await member.roles.add(role);
+
   const db = new RolePoliceDatabaseManager(client.databaseManager.getSqlite());
-  const currentRoleNames = roleNamesOf(member);
-  const change = resolveFullRoleChange(currentRoleNames, grantedRoleName, ROLE_GROUPS, GRANT_TRIGGERS);
-
-  const rolesToAdd = change.toAdd.map(name => resolveRoleByName(member, name)).filter((r): r is Role => !!r);
-  const rolesToRemove = change.toRemove.map(name => resolveRoleByName(member, name)).filter((r): r is Role => !!r);
-
-  if (rolesToAdd.length) await member.roles.add(rolesToAdd);
-  if (rolesToRemove.length) await member.roles.remove(rolesToRemove);
-
-  PENDING_BOT_CHANGES.set(member.id, { expected: change, appliedAt: Date.now() });
-
   db.addAuditLog({
     userId: member.id,
-    eventType: "bot_grant",
-    rolesAdded: change.toAdd,
-    rolesRemoved: change.toRemove,
+    roleName,
+    action: "grant",
+    source,
     timestamp: new Date(),
-    details: { trigger: grantedRoleName },
+  });
+}
+
+/** Revoke a single role and log it. See grantRole's docblock for scope. */
+export async function revokeRole(member: GuildMember, roleName: string, source: string, client: BotClient) {
+  const role = resolveRoleByName(member, roleName);
+  if (!role) return;
+
+  await member.roles.remove(role);
+
+  const db = new RolePoliceDatabaseManager(client.databaseManager.getSqlite());
+  db.addAuditLog({
+    userId: member.id,
+    roleName,
+    action: "revoke",
+    source,
+    timestamp: new Date(),
   });
 }
 
 /**
  * Call from the host's guildMemberAdd listener to apply the manual's "Initial Role-Setting":
- * grants "unverified", which (via GRANT_TRIGGERS) also grants "no state". Discord.js only
- * fires guildMemberAdd once a member has passed the server's own verification/screening
- * gate, so no extra wait logic is needed here — this satisfies the manual's note that
- * Fusion Brain is "the only one that has a feature to wait until after Discord's built-in
- * verification/validation processes."
+ * grants "unverified". The Aometry host's own roleset GROUP trigger handles cascading
+ * "no state" automatically (confirmed live-configured — see types.ts's module docblock).
  */
 export async function handleGuildJoin(member: GuildMember, client: BotClient) {
-  await handleRoleGrant(member, "unverified", client);
-}
-
-/**
- * Call from the host's guildMemberUpdate listener. Detects any role diff and classifies
- * it against the most recent bot-applied change for that user (if any, within TTL) —
- * bot-applied diffs are already logged by handleRoleGrant and skipped here; anything else
- * is logged as a manual change for audit visibility. v1 scope: log only, never correct.
- */
-export async function handleGuildMemberUpdate(oldMember: GuildMember, newMember: GuildMember, client: BotClient) {
-  const db = new RolePoliceDatabaseManager(client.databaseManager.getSqlite());
-  const before = roleNamesOf(oldMember);
-  const after = roleNamesOf(newMember);
-
-  const pending = PENDING_BOT_CHANGES.get(newMember.id);
-  const isPendingFresh = !!pending && Date.now() - pending.appliedAt <= PENDING_TTL_MS;
-  const expected = isPendingFresh ? pending!.expected : { toAdd: [], toRemove: [] };
-
-  const classification = classifyRoleDiff(before, after, expected);
-  if (classification === "no-change") return;
-
-  if (classification === "bot-applied") {
-    PENDING_BOT_CHANGES.delete(newMember.id);
-    return; // Already logged by handleRoleGrant.
-  }
-
-  const rolesAdded = [...after].filter(r => !before.has(r));
-  const rolesRemoved = [...before].filter(r => !after.has(r));
-  db.addAuditLog({
-    userId: newMember.id,
-    eventType: "manual_change",
-    rolesAdded,
-    rolesRemoved,
-    timestamp: new Date(),
-  });
+  await grantRole(member, "unverified", "role-police:join", client);
 }

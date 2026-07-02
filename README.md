@@ -10,8 +10,8 @@ Fusion Party governance plugins for the [Aometry](https://github.com/Axion-AU/Ao
 |--------|---------|---------|
 | `governance/ncap/` | `#ncap` | Negative Consent Approval Protocol — submit motions, vote, expire |
 | `governance/social-auth/` | `#auth-socmed` | Social media post authorisation — submit, approve, publish to Fedica |
-| `governance/role-police/` | `#tag-yourself` etc. | Role exclusivity groups, placeholder backfill, `/rejectstates` opt-out |
-| `governance/vanity-roles/` | `#tag-yourself` | Reaction → role granting, delegates exclusivity to role-police |
+| `governance/role-police/` | — | Shared grant/revoke + audit-log helper; join-time grant, `/rejectstates` opt-out |
+| `governance/vanity-roles/` | `#tag-yourself` | Reaction → role granting; exclusivity handled by the Aometry host itself |
 | `governance/comms-calendar/` | `#comms-cal` | Standing embed of upcoming days of significance |
 | `governance/youtube-announcements/` | `#Announcements` | Posts when the party's YouTube channel uploads |
 | `governance/events-calendar/` | configurable | Two-way Discord ↔ Google Calendar sync + upcoming-events embed |
@@ -25,14 +25,14 @@ This repo is being built out to replace every bot on the Fusion Discord server, 
 | Manual feature | Current bot | Repo module | Status |
 |---|---|---|---|
 | Initial `@unverified` grant on join | Fusion Brain (YAGPDB) | `role-police` (`handleGuildJoin`) | ✅ Built, not yet wired to `guildMemberAdd` |
-| State/Movement/Verification exclusivity + placeholders | Gamer (Role Police) | `role-police` | ✅ Built and tested; real state/movement role names still TODO |
+| State/Movement/Verification exclusivity + placeholders | Gamer (Role Police) | *(none — handled by the Aometry host itself)* | ✅ **Already covered natively.** Confirmed via the host's `guildMemberUpdate.ts` + `/roleset` command — `role-police` no longer reimplements this, see `CLAUDE.md` |
 | `#tag-yourself` reaction → role grant | Fusion Brain (YAGPDB) | `vanity-roles` | ✅ Built, not yet wired; real emoji/role mappings still TODO |
 | `?rejectstates` opt-out | Dyno (Fusion Pinky) | `role-police/opt-out.ts` | ✅ Built |
 | New YouTube video → `#Announcements` | Fusion Brain (YAGPDB) | `youtube-announcements` | ✅ Built, not yet wired to a startup call |
 | `#comms-cal` days-of-significance embed | Chronicle Bot (A Big Cal) | `comms-calendar` | ✅ Built; day list is a starter set, not comprehensive |
 | Events Calendar (Google ↔ Discord sync, Upcoming Event Schedule) | Chronicle Bot (A Big Cal) | `events-calendar` | ⚠️ Built, but the Discord → Google *write* direction is stubbed only — needs OAuth/service-account credentials a plain API key can't provide |
 | Social media post authorisation (`#auth-socmed`) | — | `social-auth` | ✅ Built (predates this pass) |
-| **Reaction-threshold authorisation** (3 approval reactions in `#authorisations-socmed`/`#authorisations-campaigns`) | Fusion Brain custom command + Dyno reaction-attach | — | ❓ **Not built — ambiguous.** This may be the same thing `social-auth` already replaces under a different name/mechanism, or a genuinely separate flow that needs its own module (e.g. for `#authorisations-campaigns`, which `social-auth` doesn't cover). **Needs a maintainer decision before more code gets written here** — see `CLAUDE.md` Pending. |
+| Reaction-threshold authorisation (3 approval reactions in `#authorisations-socmed`/`#authorisations-campaigns`) | Fusion Brain custom command + Dyno reaction-attach | — | 🟡 **Not built — working assumption in place, not blocking.** Treating `social-auth` as the intended replacement (channel-name difference assumed to be informal drift). `#authorisations-campaigns` isn't covered; flag if it needs its own flow. |
 | Channel bridging | RelayBot | — | ❌ **Not built.** The manual itself says "(Details TBD)" — nothing to implement against. |
 
 `CLAUDE.md` has the file-level detail (key functions, config shape, TODOs) for each module; this table is the "what's left" view.
@@ -172,13 +172,11 @@ Path aliases in `tsconfig.json`:
 
 Nothing in `governance/` is wired to a live Discord event from this repo — every `interaction.ts`/`timer.ts` has to be registered (`client.on(...)`, command registration) by the private host, since this repo has no running process of its own. That's why each module's docs note what's "not yet wired."
 
-### Module manifest — `info.json` vs `manifest.json` (unresolved)
+### Module manifest: `info.json` and `manifest.json`
 
-Two root-level files look like module manifests, with different, unreconciled schemas:
-- **`info.json`** (pre-existing) — `{ name, version, modules: [...] }`, matching Aometry's documented third-party module contract.
-- **`manifest.json`** (added for a PR review request) — `{ env: [...] }`, a different shape for declaring env vars, and now stale relative to the newer modules' config needs.
-
-Which one the host actually reads is unconfirmed — see `CLAUDE.md` Pending.
+Two root-level files, different purposes:
+- **`info.json`** — module discovery: `{ name, version, modules: [...] }`, matching Aometry's documented third-party module contract.
+- **`manifest.json`** — env var declaration: `{ env: [...] }`, added at a PR reviewer's request, kept current with every module's env vars.
 
 ---
 

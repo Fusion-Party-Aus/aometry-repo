@@ -3,25 +3,21 @@
  * resolveVanityReaction() in calculator.ts, fully unit-tested there. Not unit-tested here,
  * per this repo's convention for Discord.js-bound handlers (see CLAUDE.md).
  *
- * Delegates grouped-role grants to governance/role-police's handleRoleGrant (which applies
- * exclusivity + placeholder backfill + audit log) rather than duplicating that logic — the
- * whole point of role-police's config-driven design is that other modules can reuse it.
+ * Grants/revokes go through governance/role-police's grantRole/revokeRole purely for
+ * centralised audit logging — exclusivity for grouped roles (state/movement) is handled
+ * natively by the Aometry host's own roleset feature once the role is granted, not by
+ * this repo (see role-police/types.ts's module docblock).
  */
 
-import { MessageReaction, PartialMessageReaction, User, PartialUser, GuildMember, Role } from "discord.js";
+import { MessageReaction, PartialMessageReaction, User, PartialUser } from "discord.js";
 import { BotClient } from "@/types/discord";
 import { resolveVanityReaction } from "./calculator";
 import { VANITY_ROLE_MAPPINGS } from "./config";
-import { handleRoleGrant } from "@installed/governance/role-police/interaction";
-import { RolePoliceDatabaseManager } from "@installed/governance/role-police/database";
+import { grantRole, revokeRole } from "@installed/governance/role-police/interaction";
 
 function emojiIdentifier(reaction: MessageReaction | PartialMessageReaction): string {
   // Custom emoji have a stable `name`; unicode emoji use the character itself as `name` too.
   return reaction.emoji.name ?? "";
-}
-
-function resolveRoleByName(member: GuildMember, name: string): Role | undefined {
-  return member.guild.roles.cache.find((r: Role) => r.name === name);
 }
 
 /**
@@ -45,35 +41,11 @@ export async function handleVanityReaction(
   const member = await guild.members.fetch(user.id).catch(() => null);
   if (!member) return;
 
-  if (decision.action === "grant-grouped") {
-    // role-police resolves exclusivity/backfill and logs the audit entry itself.
-    await handleRoleGrant(member, decision.roleName, client);
-    return;
-  }
-
-  const role = resolveRoleByName(member, decision.roleName);
-  if (!role) return;
-
-  const db = new RolePoliceDatabaseManager(client.databaseManager.getSqlite());
-  if (decision.action === "grant-opt-in") {
-    await member.roles.add(role);
-    db.addAuditLog({
-      userId: member.id,
-      eventType: "bot_grant",
-      rolesAdded: [decision.roleName],
-      rolesRemoved: [],
-      timestamp: new Date(),
-      details: { source: "vanity-roles", kind: "opt-in" },
-    });
+  if (decision.action === "revoke-opt-in") {
+    await revokeRole(member, decision.roleName, "vanity-roles", client);
   } else {
-    await member.roles.remove(role);
-    db.addAuditLog({
-      userId: member.id,
-      eventType: "bot_grant",
-      rolesAdded: [],
-      rolesRemoved: [decision.roleName],
-      timestamp: new Date(),
-      details: { source: "vanity-roles", kind: "opt-in" },
-    });
+    // grant-grouped or grant-opt-in — same call either way; the host's roleset
+    // enforcement (if any applies to this role) takes over from here.
+    await grantRole(member, decision.roleName, "vanity-roles", client);
   }
 }
