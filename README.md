@@ -145,6 +145,8 @@ client.once('ready', () => startSocialAuthTimerService(client));
 
 ### Environment variables
 
+`social-auth`'s env vars only — see `manifest.json` or `.env.example` for the complete list across every module (including the not-yet-wired ones).
+
 | Variable | Required | Purpose |
 |----------|----------|---------|
 | `QUEUE_CHANNEL_ID` | ✅ | Discord channel snowflake for the standing queue message |
