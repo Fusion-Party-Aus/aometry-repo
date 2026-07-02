@@ -56,6 +56,18 @@ export async function handleRoleGrant(member: GuildMember, grantedRoleName: stri
 }
 
 /**
+ * Call from the host's guildMemberAdd listener to apply the manual's "Initial Role-Setting":
+ * grants "unverified", which (via GRANT_TRIGGERS) also grants "no state". Discord.js only
+ * fires guildMemberAdd once a member has passed the server's own verification/screening
+ * gate, so no extra wait logic is needed here — this satisfies the manual's note that
+ * Fusion Brain is "the only one that has a feature to wait until after Discord's built-in
+ * verification/validation processes."
+ */
+export async function handleGuildJoin(member: GuildMember, client: BotClient) {
+  await handleRoleGrant(member, "unverified", client);
+}
+
+/**
  * Call from the host's guildMemberUpdate listener. Detects any role diff and classifies
  * it against the most recent bot-applied change for that user (if any, within TTL) —
  * bot-applied diffs are already logged by handleRoleGrant and skipped here; anything else

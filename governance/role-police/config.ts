@@ -22,10 +22,18 @@ export const VERIFICATION_GROUP: RoleGroup = {
   memberRoleNames: ['unverified', 'Friend', 'Member'],
 };
 
-/** TODO: populate with the real state role names from #tag-yourself. */
+/** Opt-out role: applied by the "?rejectstates" custom command (currently on Dyno). */
+export const OPT_OUT_STATES_ROLE = 'opt-out-states';
+
+/**
+ * TODO: populate the rest of memberRoleNames with the real state role names from
+ * #tag-yourself. OPT_OUT_STATES_ROLE is already a real, documented member (not a TODO) —
+ * the manual: "This applies the @opt-out-states role, which is included in the unique
+ * roles list for states; meaning that the Role Police will remove any other state role."
+ */
 export const STATE_GROUP: RoleGroup = {
   id: 'state',
-  memberRoleNames: [],
+  memberRoleNames: [OPT_OUT_STATES_ROLE],
   placeholderRoleName: 'no state',
 };
 
@@ -46,6 +54,3 @@ export const GRANT_TRIGGERS: OnGrantTrigger[] = [
   // "A user receiving the @Member role is also automatically assigned @no movement."
   { whenRoleName: 'Member', alsoGrantRoleName: 'no movement' },
 ];
-
-/** Opt-out role: applied by the "?rejectstates" custom command (currently on Dyno). */
-export const OPT_OUT_STATES_ROLE = 'opt-out-states';
