@@ -11,6 +11,8 @@ Public Aometry module repository providing Fusion Party governance plugins for t
 
 Aometry's own docs ([`docs/SPEC_SHEET.md`](https://github.com/Axion-AU/Aometry/blob/main/docs/SPEC_SHEET.md)) describe this exact extension — titled "AOMETRY EXTENSION SPEC: FUSION GOVERNANCE MODULE" — confirming this repo is the intended "Fusion Governance Module" plugin for that host, not an unrelated or forked project.
 
+**No Dockerfile / docker-compose here, deliberately.** A `docker-compose.yml` was removed earlier in this repo's history at a PR reviewer's request — containerization is the private host's concern (it's the thing that actually runs), not this content-only plugin package's. The same reasoning rules out a Dockerfile: there's no `npm start`, no server, no bot login to containerize — the only thing it could wrap is `npm ci && npm run typecheck && npm test`, which CI already does directly. If a reproducible-environment doc is ever wanted, prefer keeping it CI-equivalent-only and clearly labelled as verification, not "how to run the bot" — see `SETUP.md` for the actual step-by-step instead.
+
 ## Architecture
 
 ```
