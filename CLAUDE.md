@@ -120,6 +120,17 @@ Key files:
 - `database.ts` — `EventsCalendarDatabaseManager`: known-events snapshot (for change detection), reminder dedup, standing message ID
 - `timer.ts` — thin glue: `startEventsCalendarService` (poll loop), `handleDiscordEventChange` (Event Feed direction, called from the host's `guildScheduledEventCreate`/`Update` listeners)
 
+### `governance/upvote-relay/`
+Replaces "Fusion News" bot's `#upvote-this` posting: relays new posts from the party's public Bluesky account into `#upvote-this` so members can boost them.
+
+**Deliberately scoped to Bluesky only, and polls Bluesky's own public feed rather than hooking into `social-auth`'s publish event.** Reasoning: `social-auth`'s `PUBLISHED` status means "successfully scheduled with Fedica," not "currently live" — Fedica's `scheduledAt` is frequently hours or days in the future, and Fedica's own API doesn't yet expose a live post URL once it does go live (still stubbed, see `social-auth/publish.ts`). Hooking into `PUBLISHED` would relay dead or premature links. Bluesky's AT Protocol has a public, unauthenticated `getAuthorFeed` endpoint — no API key/OAuth/app review — so polling it directly after the fact sidesteps the timing and URL-availability problem entirely. Twitter/X, Facebook, and Instagram don't have an equivalent free/public read API, so they're out of scope for this module; `social-auth`'s `Destination` type is intentionally left unchanged.
+
+Key files:
+- `calculator.ts` — pure functions: `parseBlueskyFeed` (defensive Atom-style JSON parse, skips malformed entries), `findNewPosts` (diffs against already-relayed URIs, oldest-first)
+- `database.ts` — `UpvoteRelayDatabaseManager`: tracks relayed post URIs so a restart never re-posts
+- `bluesky.ts` — `fetchAuthorFeed`, thin wrapper around the public `getAuthorFeed` endpoint
+- `timer.ts` — thin glue, 5-min poll loop; posts the raw `bsky.app` URL and lets Discord's native link unfurling render the card (no custom embed). Env vars `BLUESKY_HANDLE` + `UPVOTE_CHANNEL_ID`.
+
 ### `governance/ChannelUtils.ts`
 Shared utility mapping Discord channel names to `ChannelCategory` enum values.
 

@@ -69,6 +69,16 @@
       "key": "GOOGLE_CALENDAR_API_KEY",
       "description": "Read-only Google Calendar API key (events-calendar) — write direction not yet implemented; see TODO in governance/events-calendar/googleCalendar.ts",
       "required": false
+    },
+    {
+      "key": "BLUESKY_HANDLE",
+      "description": "Bluesky account handle to watch for new posts (upvote-relay), e.g. fusionparty.bsky.social",
+      "required": false
+    },
+    {
+      "key": "UPVOTE_CHANNEL_ID",
+      "description": "Discord channel for relaying new Bluesky posts (upvote-relay)",
+      "required": false
     }
   ]
 }

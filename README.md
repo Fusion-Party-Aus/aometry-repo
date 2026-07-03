@@ -15,6 +15,7 @@ Fusion Party governance plugins for the [Aometry](https://github.com/Axion-AU/Ao
 | `governance/comms-calendar/` | `#comms-cal` | Standing embed of upcoming days of significance |
 | `governance/youtube-announcements/` | `#Announcements` | Posts when the party's YouTube channel uploads |
 | `governance/events-calendar/` | configurable | Two-way Discord ↔ Google Calendar sync + upcoming-events embed |
+| `governance/upvote-relay/` | `#upvote-this` | Relays new posts from the party's public Bluesky feed |
 
 ---
 
@@ -32,6 +33,7 @@ This repo is being built out to replace every bot on the Fusion Discord server, 
 | `#comms-cal` days-of-significance embed | Chronicle Bot (A Big Cal) | `comms-calendar` | ✅ Built; day list is a starter set, not comprehensive |
 | Events Calendar (Google ↔ Discord sync, Upcoming Event Schedule) | Chronicle Bot (A Big Cal) | `events-calendar` | ⚠️ Built, but the Discord → Google *write* direction is stubbed only — needs OAuth/service-account credentials a plain API key can't provide |
 | Social media post authorisation (`#auth-socmed`) | — | `social-auth` | ✅ Built (predates this pass) |
+| Successful post → `#upvote-this` relay | Fusion News | `upvote-relay` | ✅ Built (Bluesky only — see `CLAUDE.md` for why other platforms are out of scope), not yet wired to a startup call |
 | Reaction-threshold authorisation (3 approval reactions in `#authorisations-socmed`/`#authorisations-campaigns`) | Fusion Brain custom command + Dyno reaction-attach | — | 🟡 **Not built — working assumption in place, not blocking.** Treating `social-auth` as the intended replacement (channel-name difference assumed to be informal drift). `#authorisations-campaigns` isn't covered; flag if it needs its own flow. |
 | Channel bridging | RelayBot | — | ❌ **Not built.** The manual itself says "(Details TBD)" — nothing to implement against. |
 
@@ -110,7 +112,7 @@ Without `LLM_API_KEY` the stub always returns `agree` and the pipeline proceeds 
 ## Host-bot wiring
 
 > **Only `social-auth` is wired up below.** `role-police`, `vanity-roles`, `comms-calendar`,
-> `youtube-announcements`, and `events-calendar` are built and tested but not yet connected
+> `youtube-announcements`, `events-calendar`, and `upvote-relay` are built and tested but not yet connected
 > to any Discord event listener in the host — see each module's entry in `CLAUDE.md`'s
 > Pending section for what's outstanding (mostly: real role/emoji/channel config, plus the
 > actual `client.on(...)` registration). Their wiring will look the same shape as below —
