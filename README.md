@@ -4,6 +4,10 @@ Fusion Party governance plugins for the [Aometry](https://github.com/Axion-AU/Ao
 
 **This is not a runnable bot on its own.** There's no `client.login()`, no start script — just plugin source, typechecked against stub types, that a separate private Aometry host loads and actually executes. See [Architecture](#architecture) below for how the two connect. Aometry's own docs ([`docs/SPEC_SHEET.md`](https://github.com/Axion-AU/Aometry/blob/main/docs/SPEC_SHEET.md)) describe this exact extension, confirming it's the intended "Fusion Governance Module" for that host.
 
+> **New here?** Start with [`SETUP.md`](SETUP.md) — step-by-step clone/install/verify
+> instructions, a repo-layout walkthrough, and a glossary for jargon like "gantry state"
+> and "stub mode." This README assumes that context; `SETUP.md` doesn't.
+
 ## Plugins
 
 | Plugin | Channel | Purpose |
@@ -49,7 +53,7 @@ just check        # typecheck + tests
 just test-watch   # tests in watch mode during development
 ```
 
-Requires Node 18+. No `.env` needed for local development — all integrations have stubs that activate automatically when API keys are absent.
+Requires Node 18+. No `.env` needed for local development — all integrations have stubs that activate automatically when API keys are absent. See [`SETUP.md`](SETUP.md) for a fuller walkthrough (repo layout, glossary, what can/can't be verified from this repo alone).
 
 ---
 
