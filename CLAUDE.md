@@ -13,6 +13,55 @@ Aometry's own docs ([`docs/SPEC_SHEET.md`](https://github.com/Axion-AU/Aometry/b
 
 **No Dockerfile / docker-compose here, deliberately.** A `docker-compose.yml` was removed earlier in this repo's history at a PR reviewer's request — containerization is the private host's concern (it's the thing that actually runs), not this content-only plugin package's. The same reasoning rules out a Dockerfile: there's no `npm start`, no server, no bot login to containerize — the only thing it could wrap is `npm ci && npm run typecheck && npm test`, which CI already does directly. If a reproducible-environment doc is ever wanted, prefer keeping it CI-equivalent-only and clearly labelled as verification, not "how to run the bot" — see `SETUP.md` for the actual step-by-step instead.
 
+## Fusion Party's structure — a federated merger, not a unitary party
+
+Fusion Party (Australia) is a **federated merger of five former microparties**: Science
+Party, Pirate Party, Secular Party, Vote Planet, and Climate Change Justice Party. It
+formed in 2021 after the Electoral Legislation Amendment (Party Registration Integrity)
+Bill raised the non-parliamentary party membership threshold from 500 to 1,500 — merging
+was a practical response to that, not an ideological unification. Per Wikipedia, the
+merged parties **retain a degree of autonomy as formal branches**, not just historical
+labels. This is a real structural fact worth keeping in mind for any governance-adjacent
+feature, not just trivia: **this is why Fusion is a "uniparty" only nominally — its
+member base is explicitly multi-affiliated by design, unlike most single-origin parties.**
+
+This is already reflected live on the Discord server: the `/roleset list` screenshot
+shared in PR #4 shows a **Movement** roleset (`@Science`, `@Pirate`, `@Secular`,
+`@Vote Planet`, `@Climate Justice`, `@Progressive`) configured as `UNIQUE` — i.e.
+single-choice/exclusive. A member can currently only hold one branch role at a time,
+which is a *narrower* model than the party's actual federated structure technically
+allows (nothing says a member can't care about both Science and Climate Justice).
+
+**Why this matters for future feature work, and what's genuinely still open:**
+
+- There's a standing desire (not yet a committed feature) to have the bot meaningfully
+  support this multi-branch structure, rather than just modeling Fusion as a flat,
+  single-identity party. Two distinct sub-questions, both currently unresolved — see
+  **issue #7**:
+  1. Should branch/movement role selection stop being exclusive (`UNIQUE` → multi-select),
+     so members can formally affiliate with more than one microparty branch? This is a
+     **host-level `/roleset` config change** — this repo's code doesn't control roleset
+     exclusivity (see role-police section below), so this alone isn't something a PR here
+     can implement; it needs the maintainers to reconfigure the host's roleset.
+  2. *If* multi-affiliation becomes possible, should governance vote weight (`ncap` /
+     `social-auth` approvals) reflect it at all? Current lean (not a decision): weighting
+     by **area-of-concern** (topic-based engagement) is likely safer and less
+     factionally-loaded than weighting by branch-of-origin directly, since formalizing
+     microparty affiliation into vote power invites "stacking" optics in a party that
+     explicitly merged to move past microparty silos — but this is the party's own
+     governance-design call, not a technical one, and nothing here should be built
+     against a guess.
+- **Issue #8** (split off from #7, more tractable): `social-auth` already lets submitters
+  tag posts with both `HASHTAGS_BRANCH` (7 microparty hashtags) and `POLICY_TAGS` (14
+  topic/area-of-concern tags), persisted per submission. That data already supports a
+  read-only fairness/coverage report (e.g. "which branch/topic hasn't been posted about
+  recently") without touching voting logic at all — a much smaller, non-MVP-blocking win
+  that doesn't depend on resolving the harder roleset/weighting questions above.
+
+Neither of these is scoped for implementation yet. Recorded here so this context survives
+between sessions/contributors rather than needing to be re-derived from PR discussion each
+time it comes up.
+
 ## Repo philosophy: extensions/mods, not a fork — and not everything belongs here
 
 Per maintainer guidance from finneh4249 (PR #4): **the right mental model for this repo is
