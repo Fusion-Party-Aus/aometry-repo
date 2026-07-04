@@ -66,12 +66,12 @@ Path aliases in `tsconfig.json`:
 
 ### Module manifest: `info.json` and `manifest.json`
 
-Two root-level files, different purposes, not actually in conflict:
+Two root-level files, different purposes, not in conflict:
 
-- **`info.json`** — module discovery: `{ name, version, modules: [{ name, path, description }] }`, matching Aometry's documented third-party module contract (where the plugin code lives).
-- **`manifest.json`** — env var declaration: `{ env: [{ key, description, required }] }`, added at a PR reviewer's request ("we handle env modifications like this at the repo level in the manifest.json"), and kept current with every env var referenced across all modules.
+- **`info.json`** — module discovery: `{ name, version, modules: [{ name, path, description }] }`. **This is the one the host actually parses.** Confirmed by reading the host's real module installer: `src/modules/Core/commands/repo.ts` delegates to `src/utilities/RepositoryManager.ts`, which does `require(path.join(tempDir, 'info.json'))` on install and re-reads it on its periodic update check. That's the only file it reads from an installed module's repo.
+- **`manifest.json`** — env var declaration: `{ env: [{ key, description, required }] }`. **`manifest.json` is never read or referenced anywhere in the host's code** — confirmed by tracing `RepositoryManager.ts` in full, not just skimming. It's a human-facing checklist for whoever deploys the host (added at a PR reviewer's request — "we handle env modifications like this at the repo level in the manifest.json" — meaning a person reads it when wiring up the host's `.env`, not that code parses it), not a machine-validated contract.
 
-Not treating this as a blocking question — the maintainer's own review comment already endorsed `manifest.json` for env var declaration, so proceeding on that basis rather than re-asking. Flag it if the field-level shape (`key`/`description`/`required`) turns out to need adjusting.
+**Resolved, not just deferred**: because the host never parses `manifest.json`, there's no schema to get "wrong" — any reasonable `{ key, description, required }` shape is correct by construction, since nothing programmatically checks it against anything. Don't re-open this as an open question in future PR comments; if the maintainer's own module-loading code changes to read `manifest.json` at some point, that would need re-verifying, but as of this investigation it's settled.
 
 ## Modules
 
