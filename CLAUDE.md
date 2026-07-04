@@ -13,6 +13,43 @@ Aometry's own docs ([`docs/SPEC_SHEET.md`](https://github.com/Axion-AU/Aometry/b
 
 **No Dockerfile / docker-compose here, deliberately.** A `docker-compose.yml` was removed earlier in this repo's history at a PR reviewer's request — containerization is the private host's concern (it's the thing that actually runs), not this content-only plugin package's. The same reasoning rules out a Dockerfile: there's no `npm start`, no server, no bot login to containerize — the only thing it could wrap is `npm ci && npm run typecheck && npm test`, which CI already does directly. If a reproducible-environment doc is ever wanted, prefer keeping it CI-equivalent-only and clearly labelled as verification, not "how to run the bot" — see `SETUP.md` for the actual step-by-step instead.
 
+## Repo philosophy: extensions/mods, not a fork — and not everything belongs here
+
+Per maintainer guidance from finneh4249 (PR #4): **the right mental model for this repo is
+"extensions/mods for the Aometry bot," specifically the customisations suited to Fusion
+Party's own Discord.** Aometry itself is built to be guild-agnostic — any Discord server
+could run it — and this repo's whole reason for existing is to hold the parts that are
+*specifically* Fusion's, not general-purpose Discord functionality that happens to have
+been built while working on this repo.
+
+Concretely, this means:
+
+- **Avoid hardcoding Fusion-specific implementation details directly in logic.** Prefer
+  config (channel names, role names, emoji mappings, day-of-significance lists) over
+  literals baked into control flow. `governance/ChannelUtils.ts` (pre-dating this PR, used
+  by `governance/motions/` and `governance/events/`) is a known example of what *not* to
+  do — Fusion's exact channel names hardcoded into a switch statement — flagged by
+  finneh4249 as an "accidental violation" of Aometry's guild-agnostic design. Don't repeat
+  that pattern in new modules; do fix it in old ones if you're touching that code anyway
+  (but don't drive-by rewrite it as part of an unrelated PR).
+- **Not every feature belongs in this repo, or under "governance."** Features that are
+  genuinely reusable on any Discord server — general utility bots, not Fusion-specific
+  voting/motion/authorisation workflows — should be evaluated for whether they belong in a
+  *separate*, guild-agnostic repo instead of being bundled in here under the "governance"
+  label just because that's where the work happened. `ncap` and `social-auth` are the clear
+  "genuinely Fusion governance" cases (party-specific approval workflows, sensitivity
+  tiers, supermajority rules tied to Fusion's own policy). The five bot-replacement modules
+  added in PR #4 (`role-police`, `vanity-roles`, `comms-calendar`,
+  `youtube-announcements`, `events-calendar`) plus `upvote-relay` are general Discord
+  utilities with no inherent tie to Fusion or to governance — candidates for a split, per
+  finneh4249's suggestion, though the final call on scope is the maintainer's, not
+  something to unilaterally act on.
+- **Keep PRs to one feature (or a closely related batch), not an ever-growing single PR.**
+  PR #4 grew from a social-auth hardening pass into six additional modules built as a
+  maintainability exercise — useful for that exercise, but exactly the kind of PR scope
+  finneh4249 is asking future work to avoid. Default to smaller, single-purpose PRs going
+  forward.
+
 ## Architecture
 
 ```
