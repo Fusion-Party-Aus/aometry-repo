@@ -10,10 +10,7 @@ import { SlashCommandBuilder, ChatInputCommandInteraction, MessageFlags } from "
 import { BotClient, Command } from "@/types/discord";
 import { errorEmbed, successEmbed } from "@/utils/responses";
 import { grantRole } from "./interaction";
-import { OPT_OUT_STATES_ROLE } from "./config";
-
-// Manual: "?rejectstates may be used anywhere in the server (other than #lobby-and-rules)."
-const DISALLOWED_CHANNEL_NAME = "lobby-and-rules";
+import { OPT_OUT_STATES_ROLE, OPT_OUT_DISALLOWED_CHANNEL_NAME } from "./config";
 
 const command: Command = {
   data: new SlashCommandBuilder()
@@ -21,9 +18,9 @@ const command: Command = {
     .setDescription("Hide all state channels by opting out of state roles"),
   execute: (async ({ interaction, client }: { interaction: ChatInputCommandInteraction; client: BotClient }) => {
     if ("channel" in interaction && interaction.channel && "name" in interaction.channel
-        && interaction.channel.name === DISALLOWED_CHANNEL_NAME) {
+        && interaction.channel.name === OPT_OUT_DISALLOWED_CHANNEL_NAME) {
       return interaction.reply({
-        embeds: [errorEmbed("Not Here", `This command can't be used in #${DISALLOWED_CHANNEL_NAME}.`)],
+        embeds: [errorEmbed("Not Here", `This command can't be used in #${OPT_OUT_DISALLOWED_CHANNEL_NAME}.`)],
         flags: MessageFlags.Ephemeral,
       });
     }

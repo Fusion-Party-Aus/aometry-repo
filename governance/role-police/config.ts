@@ -7,3 +7,6 @@
 
 /** Opt-out role: applied by the "?rejectstates" custom command (currently on Dyno). */
 export const OPT_OUT_STATES_ROLE = 'opt-out-states';
+
+/** Channel where "/rejectstates" is disallowed. Manual: "may be used anywhere in the server (other than #lobby-and-rules)." */
+export const OPT_OUT_DISALLOWED_CHANNEL_NAME = 'lobby-and-rules';
