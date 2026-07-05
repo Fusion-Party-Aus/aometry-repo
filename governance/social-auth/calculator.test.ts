@@ -8,6 +8,9 @@ import {
   formatTimerDuration,
   getTimeRemaining,
   updateSubmissionTimer,
+  resolveEffectiveSensitivity,
+  resolvePublishMode,
+  isHoldPublishDue,
 } from './calculator';
 import {
   SocialAuthSubmission,
@@ -338,5 +341,80 @@ describe('updateSubmissionTimer — NATURAL_APPROVAL gantry', () => {
     const updated = updateSubmissionTimer(sub);
     // expired → remainingMs ≤ 0, so no natural gantry
     expect(updated.timerCalculation.gantryState).toBe(GantryState.NONE);
+  });
+});
+
+describe('resolveEffectiveSensitivity', () => {
+  const { LOW, MEDIUM, HIGH } = Sensitivity;
+
+  it('agree → uses submitter sensitivity unchanged', () => {
+    expect(resolveEffectiveSensitivity(LOW, LOW, 'agree')).toBe(LOW);
+    expect(resolveEffectiveSensitivity(MEDIUM, MEDIUM, 'agree')).toBe(MEDIUM);
+    expect(resolveEffectiveSensitivity(HIGH, HIGH, 'agree')).toBe(HIGH);
+  });
+
+  it('escalate → uses AI suggested sensitivity', () => {
+    expect(resolveEffectiveSensitivity(LOW, MEDIUM, 'escalate')).toBe(MEDIUM);
+    expect(resolveEffectiveSensitivity(LOW, HIGH, 'escalate')).toBe(HIGH);
+    expect(resolveEffectiveSensitivity(MEDIUM, HIGH, 'escalate')).toBe(HIGH);
+  });
+
+  it('downgrade → keeps submitter sensitivity (advisory only)', () => {
+    expect(resolveEffectiveSensitivity(MEDIUM, LOW, 'downgrade')).toBe(MEDIUM);
+    expect(resolveEffectiveSensitivity(HIGH, MEDIUM, 'downgrade')).toBe(HIGH);
+    expect(resolveEffectiveSensitivity(HIGH, LOW, 'downgrade')).toBe(HIGH);
+  });
+
+  it('escalate with same level → no change', () => {
+    expect(resolveEffectiveSensitivity(HIGH, HIGH, 'escalate')).toBe(HIGH);
+  });
+});
+
+describe('resolvePublishMode', () => {
+  const { LOW, MEDIUM, HIGH } = Sensitivity;
+
+  it('HIGH → always manual', () => {
+    expect(resolvePublishMode(HIGH, false, false)).toBe('manual');
+    expect(resolvePublishMode(HIGH, true, true)).toBe('manual');
+    expect(resolvePublishMode(HIGH, false, true)).toBe('manual');
+  });
+
+  it('MEDIUM + supermajority → hold', () => {
+    expect(resolvePublishMode(MEDIUM, false, true)).toBe('hold');
+  });
+
+  it('MEDIUM + normal approval → manual', () => {
+    expect(resolvePublishMode(MEDIUM, false, false)).toBe('manual');
+    expect(resolvePublishMode(MEDIUM, true, false)).toBe('manual');
+  });
+
+  it('LOW + no objections → auto', () => {
+    expect(resolvePublishMode(LOW, false, false)).toBe('auto');
+    expect(resolvePublishMode(LOW, false, true)).toBe('auto');
+  });
+
+  it('LOW + had objections → hold', () => {
+    expect(resolvePublishMode(LOW, true, false)).toBe('hold');
+    expect(resolvePublishMode(LOW, true, true)).toBe('hold');
+  });
+});
+
+describe('isHoldPublishDue', () => {
+  it('returns true when scheduledAt is in the past', () => {
+    const past = new Date(FIXED_NOW.getTime() - 1);
+    expect(isHoldPublishDue(past)).toBe(true);
+  });
+
+  it('returns true when scheduledAt equals now exactly', () => {
+    expect(isHoldPublishDue(new Date(FIXED_NOW.getTime()))).toBe(true);
+  });
+
+  it('returns false when scheduledAt is in the future', () => {
+    const future = new Date(FIXED_NOW.getTime() + 1000);
+    expect(isHoldPublishDue(future)).toBe(false);
+  });
+
+  it('returns false when scheduledAt is undefined', () => {
+    expect(isHoldPublishDue(undefined)).toBe(false);
   });
 });

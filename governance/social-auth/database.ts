@@ -17,6 +17,7 @@ import {
 } from './types';
 import { calculateDynamicTimer } from './calculator';
 
+/** SQLite persistence for the #auth-socmed submission lifecycle. See module docblock above for scope. */
 export class SocialAuthDatabaseManager {
   private db: Database.Database;
 
@@ -144,10 +145,22 @@ export class SocialAuthDatabaseManager {
       );
     `);
 
+    this.db.exec(`
+      CREATE TABLE IF NOT EXISTS bot_config (
+        key TEXT PRIMARY KEY,
+        value TEXT NOT NULL
+      );
+    `);
+
     // Safe schema migrations: add columns introduced after initial deploy.
     for (const sql of [
       'ALTER TABLE auth_post_submissions ADD COLUMN scheduled_at INTEGER',
       'ALTER TABLE auth_post_submissions ADD COLUMN fedica_scheduled_at INTEGER',
+      'ALTER TABLE auth_post_submissions ADD COLUMN hold_until INTEGER',
+      'ALTER TABLE auth_post_submissions ADD COLUMN ai_risk_verdict TEXT',
+      'ALTER TABLE auth_post_submissions ADD COLUMN ai_suggested_sensitivity TEXT',
+      'ALTER TABLE auth_post_submissions ADD COLUMN ai_risk_summary TEXT',
+      'ALTER TABLE auth_post_submissions ADD COLUMN ai_risk_flags TEXT',
     ]) {
       try { this.db.exec(sql); } catch { /* column already exists */ }
     }
@@ -271,6 +284,22 @@ export class SocialAuthDatabaseManager {
     return this.rowToSubmission(row);
   }
 
+  getConfigValue(key: string): string | null {
+    const row = this.db.prepare('SELECT value FROM bot_config WHERE key = ?').get(key) as { value: string } | undefined;
+    return row?.value ?? null;
+  }
+
+  setConfigValue(key: string, value: string): void {
+    this.db.prepare('INSERT OR REPLACE INTO bot_config (key, value) VALUES (?, ?)').run(key, value);
+  }
+
+  getSubmissionsInState(status: AuthPostStatus): SocialAuthSubmission[] {
+    const stmt = this.db.prepare(`
+      SELECT * FROM auth_post_submissions WHERE status = ? ORDER BY submitted_at DESC
+    `);
+    return (stmt.all(status) as any[]).map(row => this.rowToSubmission(row));
+  }
+
   getActiveSubmissions(): SocialAuthSubmission[] {
     const stmt = this.db.prepare(`
       SELECT * FROM auth_post_submissions
@@ -284,6 +313,9 @@ export class SocialAuthDatabaseManager {
     const stmt = this.db.prepare(`
       UPDATE auth_post_submissions SET
         content = @content,
+        sensitivity = @sensitivity,
+        required_approvals = @required_approvals,
+        self_approve = @self_approve,
         status = @status,
         expires_at = @expires_at,
         resolved_at = @resolved_at,
@@ -295,6 +327,11 @@ export class SocialAuthDatabaseManager {
         fedica_error = @fedica_error,
         scheduled_at = @scheduled_at,
         fedica_scheduled_at = @fedica_scheduled_at,
+        hold_until = @hold_until,
+        ai_risk_verdict = @ai_risk_verdict,
+        ai_suggested_sensitivity = @ai_suggested_sensitivity,
+        ai_risk_summary = @ai_risk_summary,
+        ai_risk_flags = @ai_risk_flags,
         message_id = @message_id,
         thread_id = @thread_id,
         updated_at = @updated_at
@@ -304,6 +341,9 @@ export class SocialAuthDatabaseManager {
     stmt.run({
       id: submission.id,
       content: JSON.stringify(submission.content),
+      sensitivity: submission.sensitivity,
+      required_approvals: submission.requiredApprovals,
+      self_approve: submission.selfApprove ? 1 : 0,
       status: submission.status,
       expires_at: submission.expiresAt?.getTime() ?? null,
       resolved_at: submission.resolvedAt?.getTime() ?? null,
@@ -315,6 +355,11 @@ export class SocialAuthDatabaseManager {
       fedica_error: submission.fedicaError ?? null,
       scheduled_at: submission.scheduledAt?.getTime() ?? null,
       fedica_scheduled_at: submission.fedicaScheduledAt?.getTime() ?? null,
+      hold_until: submission.holdUntil?.getTime() ?? null,
+      ai_risk_verdict: submission.aiRiskVerdict ?? null,
+      ai_suggested_sensitivity: submission.aiSuggestedSensitivity ?? null,
+      ai_risk_summary: submission.aiRiskSummary ?? null,
+      ai_risk_flags: submission.aiRiskFlags ? JSON.stringify(submission.aiRiskFlags) : null,
       message_id: submission.messageId,
       thread_id: submission.threadId ?? null,
       updated_at: Date.now()
@@ -517,6 +562,11 @@ export class SocialAuthDatabaseManager {
       fedicaError: row.fedica_error ?? undefined,
       scheduledAt: row.scheduled_at ? new Date(row.scheduled_at) : undefined,
       fedicaScheduledAt: row.fedica_scheduled_at ? new Date(row.fedica_scheduled_at) : undefined,
+      holdUntil: row.hold_until ? new Date(row.hold_until) : undefined,
+      aiRiskVerdict: row.ai_risk_verdict ?? undefined,
+      aiSuggestedSensitivity: row.ai_suggested_sensitivity ?? undefined,
+      aiRiskSummary: row.ai_risk_summary ?? undefined,
+      aiRiskFlags: row.ai_risk_flags ? JSON.parse(row.ai_risk_flags) : undefined,
       channelId: row.channel_id,
       messageId: row.message_id,
       threadId: row.thread_id ?? undefined

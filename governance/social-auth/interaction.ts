@@ -34,8 +34,12 @@ import {
   calculateDynamicTimer,
   checkSupermajorityBypass,
   checkApprovalThresholdMet,
+  resolveEffectiveSensitivity,
+  resolvePublishMode,
 } from "./calculator";
-import { publishToFedica, parseScheduleFromText } from "./publish";
+import { publishToFedica, parseScheduleFromText, validatePostForDestinations, composePostText } from "./publish";
+import { assessRisk } from "./llm-pipeline";
+import { refreshQueueMessage } from "./queue";
 import { errorEmbed } from "@/utils/responses";
 
 const GANTRY_COLORS: Record<GantryState, number> = {
@@ -45,32 +49,74 @@ const GANTRY_COLORS: Record<GantryState, number> = {
   [GantryState.OBJECTION]: 0xff4444,
 };
 
+// Statuses that represent a finished submission — no further state-changing action allowed.
+const TERMINAL_STATUSES: AuthPostStatus[] = [
+  AuthPostStatus.PUBLISHED,
+  AuthPostStatus.BLOCKED,
+  AuthPostStatus.WITHDRAWN,
+];
+
+/**
+ * True when the interacting user is allowed to drive privileged actions (publish,
+ * send-back) on a submission: an approver-pool member, the original submitter, or a
+ * moderator with ManageMessages. Mirrors the voting eligibility rule in calculator.addVote.
+ */
+function isAuthorisedApprover(interaction: ButtonInteraction, submission: SocialAuthSubmission): boolean {
+  return (
+    interaction.user.id === submission.submitterId ||
+    submission.approverPool.memberIds.includes(interaction.user.id) ||
+    !!interaction.memberPermissions?.has('ManageMessages')
+  );
+}
+
 export default async function handleSocialAuthInteraction(
   interaction: Interaction,
   client: BotClient
 ) {
+  // Read-only interactions — no queue refresh needed.
+  if (interaction.isButton() && interaction.customId.startsWith("authpost_info_")) {
+    return handleAuthPostInfo(interaction, client);
+  }
+  if (interaction.isButton() && interaction.customId.startsWith("authpost_edit_open_")) {
+    return handleAuthPostEditOpen(interaction, client);
+  }
+
+  // State-changing interactions — refresh the standing queue message afterwards.
+  let handled = false;
+
   if (interaction.isModalSubmit()) {
     if (interaction.customId.startsWith("authpost_submit_")) {
-      return handleAuthPostModalSubmit(interaction, client);
-    }
-    if (interaction.customId.startsWith("authpost_edit_")) {
-      return handleAuthPostEditSubmit(interaction, client);
+      await handleAuthPostModalSubmit(interaction, client);
+      handled = true;
+    } else if (interaction.customId.startsWith("authpost_edit_")) {
+      await handleAuthPostEditSubmit(interaction, client);
+      handled = true;
     }
   }
 
-  if (interaction.isButton()) {
+  if (!handled && interaction.isButton()) {
     const customId = interaction.customId;
-
     if (customId.startsWith("authpost_approve_")) {
-      return handleAuthPostApprove(interaction, client);
+      await handleAuthPostApprove(interaction, client);
     } else if (customId.startsWith("authpost_object_")) {
-      return handleAuthPostObject(interaction, client);
-    } else if (customId.startsWith("authpost_edit_open_")) {
-      return handleAuthPostEditOpen(interaction, client);
-    } else if (customId.startsWith("authpost_info_")) {
-      return handleAuthPostInfo(interaction, client);
+      await handleAuthPostObject(interaction, client);
+    } else if (customId.startsWith("authpost_publish_")) {
+      await handleAuthPostManualPublish(interaction, client);
+    } else if (customId.startsWith("authpost_withdraw_")) {
+      await handleAuthPostWithdraw(interaction, client);
+    } else if (customId.startsWith("authpost_request_edit_")) {
+      await handleAuthPostRequestEdit(interaction, client);
+    } else if (customId.startsWith("authpost_cancel_hold_")) {
+      await handleAuthPostCancelHold(interaction, client);
+    } else {
+      return;
     }
   }
+
+  // Fire-and-forget — queue refresh must not block or throw to the caller.
+  void refreshQueueMessage(client).catch(err =>
+    console.error('[Queue] Post-interaction refresh failed:', err)
+  );
 }
 
 /**
@@ -106,6 +152,15 @@ async function handleAuthPostModalSubmit(
 
     const content: PostContent = { commentary, articleLink, policyLinks, hashtags };
 
+    // Validate before creating anything in the DB.
+    const validationIssues = validatePostForDestinations(content, destinations);
+    const hardErrors = validationIssues.filter(e => e.severity === 'error');
+    if (hardErrors.length > 0) {
+      return interaction.editReply({
+        embeds: [errorEmbed('Validation Error', hardErrors.map(e => e.message).join('\n'))],
+      });
+    }
+
     const approverPoolMemberIds = interaction.guild
       ? interaction.guild.members.cache
           .filter(member => !member.user.bot && member.roles.cache.some(r => r.name === "authnational"))
@@ -131,8 +186,40 @@ async function handleAuthPostModalSubmit(
       config.initialTimerMinutes
     );
 
-    const embed = createAuthPostEmbed(submission, submission.timerCalculation);
-    const components = createAuthPostButtons(submission.id);
+    // Run AI risk assessment — advisory, non-blocking. Failure is silently swallowed.
+    let riskAnnotation: Awaited<ReturnType<typeof assessRisk>> | null = null;
+    try {
+      riskAnnotation = await assessRisk({ content, destinations, submitterSensitivity: sensitivity });
+    } catch { /* LLM unavailable — proceed without annotation */ }
+
+    // If AI escalates, use the higher sensitivity for requiredApprovals and publish mode.
+    const effectiveSensitivity = riskAnnotation
+      ? resolveEffectiveSensitivity(sensitivity, riskAnnotation.suggestedSensitivity, riskAnnotation.verdict)
+      : sensitivity;
+    const effectiveConfig = SENSITIVITY_CONFIG[effectiveSensitivity];
+
+    // Persist AI assessment fields onto the submission. When the AI escalates we carry
+    // the effective sensitivity AND requiredApprovals forward so the publish-mode decision
+    // in resolveApproved (which reads submission.sensitivity from the DB) stays consistent.
+    // If escalation moves the post to a tier where self-approval isn't allowed, the
+    // submitter's original selfApprove flag must be cleared — otherwise a LOW-tier
+    // self-approve could carry over into a HIGH-tier post that requires independent review.
+    const submissionWithRisk = {
+      ...submission,
+      ...(riskAnnotation ? {
+        aiRiskVerdict: riskAnnotation.verdict,
+        aiSuggestedSensitivity: riskAnnotation.suggestedSensitivity,
+        aiRiskSummary: riskAnnotation.summary,
+        aiRiskFlags: riskAnnotation.flags,
+        sensitivity: effectiveSensitivity,
+        requiredApprovals: effectiveConfig.requiredApprovals,
+        selfApprove: submission.selfApprove && effectiveConfig.allowSelfApprove,
+      } : {}),
+    };
+    db.updateSubmission(submissionWithRisk);
+
+    const embed = createAuthPostEmbed(submissionWithRisk, submissionWithRisk.timerCalculation, riskAnnotation);
+    const components = createAuthPostButtons(submissionWithRisk.id);
 
     const channel = interaction.guild?.channels.cache.find(c => c.name === "auth-socmed");
     if (!channel || !channel.isTextBased() || !("send" in channel)) {
@@ -142,12 +229,22 @@ async function handleAuthPostModalSubmit(
     }
 
     const message = await channel.send({ embeds: [embed], components });
-    db.updateSubmission({ ...submission, messageId: message.id, channelId: channel.id });
+    db.updateSubmission({ ...submissionWithRisk, messageId: message.id, channelId: channel.id });
+
+    const escalationNote = riskAnnotation?.verdict === 'escalate'
+      ? `\n⚠️ AI escalated sensitivity to **${effectiveSensitivity}** — required approvals: ${effectiveConfig.requiredApprovals}`
+      : '';
+
+    // Image warnings are advisory (not hard errors) — surface them in the confirmation.
+    const imageWarnings = validationIssues.filter(e => e.severity === 'warning');
+    const imageNote = imageWarnings.length > 0
+      ? `\n\n⚠️ **Image required:** ${imageWarnings.map(e => e.message).join(' ')}`
+      : '';
 
     return interaction.editReply({
       embeds: [{
         title: "✅ Auth Post Submitted",
-        description: `Your request **${submission.id}** has been posted to <#${channel.id}> for approval.\n\nRequired approvals: ${config.requiredApprovals}${selfApprove ? " (self-approved, 1 more needed)" : ""}`,
+        description: `Your request **${submissionWithRisk.id}** has been posted to <#${channel.id}> for approval.\n\nRequired approvals: ${effectiveConfig.requiredApprovals}${selfApprove ? " (self-approved, 1 more needed)" : ""}${escalationNote}${imageNote}`,
         color: 0x00aa00,
       }],
     });
@@ -213,6 +310,16 @@ async function castVote(interaction: ButtonInteraction, voteType: VoteType) {
       return resolveApproved(interaction, db, updatedSubmission, supermajority ? "Supermajority bypass" : "Required approvals met");
     }
 
+    // Gantry instant resolutions (approval_gantry_approve, objection_gantry_object).
+    // supermajority_bypass is already handled above via checkSupermajorityBypass.
+    const { instantResolution } = voteResult;
+    if (instantResolution?.type === 'approval_gantry_approve') {
+      return resolveApproved(interaction, db, updatedSubmission, 'Approval gantry instant resolution');
+    }
+    if (instantResolution?.type === 'objection_gantry_object') {
+      return resolveBlocked(interaction, db, updatedSubmission, 'Objection gantry instant resolution');
+    }
+
     const timerCalc = calculateDynamicTimer(
       updatedSubmission.initialTimerMinutes,
       updatedSubmission.approveVotes,
@@ -248,12 +355,23 @@ async function resolveApproved(
   submission: SocialAuthSubmission,
   reason: string
 ) {
+  // Resolve publishMode and scheduledAt before the atomic write so both are
+  // persisted in a single transaction — no gap where APPROVED has no scheduledAt.
+  const holdMinutes = 15;
+  const hadObjections = submission.objectVotes.length > 0;
+  const wasSupermajority = reason.includes('Supermajority');
+  const publishMode = resolvePublishMode(submission.sensitivity, hadObjections, wasSupermajority);
+  const autoPublishAt = publishMode === 'hold' ? new Date(Date.now() + holdMinutes * 60000) : undefined;
+
   const approved: SocialAuthSubmission = {
     ...submission,
     status: AuthPostStatus.APPROVED,
     resolvedAt: new Date(),
     outcome: "approved",
     outcomeReason: reason,
+    // holdUntil drives the 15-min auto-publish trigger only — scheduledAt (the intended
+    // Fedica post time) must stay untouched, or the hold window silently reschedules the post.
+    ...(autoPublishAt && { holdUntil: autoPublishAt }),
   };
 
   // Only proceed if the submission is still PENDING in the DB (concurrent-safe).
@@ -272,13 +390,72 @@ async function resolveApproved(
   }
 
   const message = await getInteractionMessage(interaction, submission.messageId);
+
+  if (publishMode === 'manual') {
+    // Human must click "Publish" — update embed with a manual-publish button
+    const holdEmbed = new EmbedBuilder()
+      .setTitle(`✅ ${approved.id} Approved — Awaiting Manual Publish`)
+      .setDescription(
+        `Approved (${reason}).\nSensitivity **${approved.sensitivity}** requires manual publish.\n` +
+        `Destinations: ${approved.destinations.join(', ')}`
+      )
+      .setColor(0x5c9de0);
+    const publishButton = new ActionRowBuilder<ButtonBuilder>().addComponents(
+      new ButtonBuilder().setCustomId(`authpost_publish_${approved.id}`).setLabel('📤 Publish to Fedica').setStyle(ButtonStyle.Primary),
+      new ButtonBuilder().setCustomId(`authpost_withdraw_${approved.id}`).setLabel('🚫 Withdraw').setStyle(ButtonStyle.Danger),
+    );
+    if (message) await message.edit({ embeds: [holdEmbed], components: [publishButton] });
+    return interaction.editReply({
+      embeds: [{ title: '✅ Approved', description: `**${approved.id}** approved. Manual publish required — click "Publish to Fedica" on the post.`, color: 0x5c9de0 }],
+    });
+  }
+
+  if (publishMode === 'hold') {
+    // 15-minute hold window — holdUntil and scheduledAt both persisted atomically above.
+    const holdEmbed = new EmbedBuilder()
+      .setTitle(`✅ ${approved.id} Approved — Publishing in ${holdMinutes}m`)
+      .setDescription(
+        `Approved (${reason}). Auto-publishes <t:${Math.floor(autoPublishAt!.getTime() / 1000)}:R>.\n` +
+        `Destinations: ${approved.destinations.join(', ')}`
+      )
+      .setColor(0xffa500);
+    const cancelButton = new ActionRowBuilder<ButtonBuilder>().addComponents(
+      new ButtonBuilder().setCustomId(`authpost_cancel_hold_${approved.id}`).setLabel('🚫 Cancel Hold').setStyle(ButtonStyle.Danger),
+    );
+    if (message) await message.edit({ embeds: [holdEmbed], components: [cancelButton] });
+    return interaction.editReply({
+      embeds: [{ title: '✅ Approved', description: `**${approved.id}** approved. Auto-publishes in ${holdMinutes} minutes unless cancelled.`, color: 0xffa500 }],
+    });
+  }
+
+  // auto — publish immediately
   const pendingEmbed = new EmbedBuilder()
     .setTitle(`✅ ${approved.id} Approved — Scheduling on Fedica`)
     .setDescription(`Approved (${reason}). Destinations: ${approved.destinations.join(", ")}`)
     .setColor(0x00aa00);
   if (message) await message.edit({ embeds: [pendingEmbed], components: [] });
 
-  const result = await publishToFedica(approved);
+  // Claim APPROVED → PUBLISHING before the external call so a crash/retry between the
+  // Fedica call succeeding and the final atomicResolve can't cause a duplicate publish.
+  // The claim result must be checked — proceeding to call Fedica after a failed claim
+  // would defeat the guard entirely if a concurrent interaction already moved this row.
+  const publishingClaimed = db.atomicResolve(
+    { ...approved, status: AuthPostStatus.PUBLISHING },
+    { postId: approved.id, eventType: 'publish_attempt', timestamp: new Date(), details: { trigger: 'auto' } },
+    AuthPostStatus.APPROVED
+  );
+  if (!publishingClaimed) {
+    return interaction.editReply({
+      embeds: [errorEmbed("Already In Progress", `${approved.id} is already being published or was resolved by a concurrent interaction.`)],
+    });
+  }
+
+  let result;
+  try {
+    result = await publishToFedica(approved);
+  } catch (error) {
+    result = { success: false as const, error: error instanceof Error ? error.message : String(error) };
+  }
 
   const finalSubmission: SocialAuthSubmission = result.success
     ? {
@@ -295,7 +472,7 @@ async function resolveApproved(
     eventType: result.success ? "publish_success" : "publish_failure",
     timestamp: new Date(),
     details: result,
-  }, AuthPostStatus.APPROVED);
+  }, AuthPostStatus.PUBLISHING);
 
   const schedStr = result.fedicaScheduledAt
     ? `\nScheduled for: **${result.fedicaScheduledAt.toISOString()}**`
@@ -309,7 +486,13 @@ async function resolveApproved(
         : `Destinations: ${approved.destinations.join(", ")}\nError: ${result.error}`
     )
     .setColor(result.success ? 0x00aa00 : 0xff4444);
-  if (message) await message.edit({ embeds: [finalEmbed], components: [] });
+  const finalComponents = result.success ? [] : [
+    new ActionRowBuilder<ButtonBuilder>().addComponents(
+      new ButtonBuilder().setCustomId(`authpost_publish_${approved.id}`).setLabel('🔄 Retry Publish').setStyle(ButtonStyle.Primary),
+      new ButtonBuilder().setCustomId(`authpost_withdraw_${approved.id}`).setLabel('🚫 Withdraw').setStyle(ButtonStyle.Danger),
+    ),
+  ];
+  if (message) await message.edit({ embeds: [finalEmbed], components: finalComponents });
 
   return interaction.editReply({
     embeds: [{
@@ -319,6 +502,45 @@ async function resolveApproved(
         : `**${approved.id}** was approved but the Fedica schedule failed: ${result.error}`,
       color: result.success ? 0x00aa00 : 0xff9900,
     }],
+  });
+}
+
+async function resolveBlocked(
+  interaction: ButtonInteraction,
+  db: SocialAuthDatabaseManager,
+  submission: SocialAuthSubmission,
+  reason: string
+) {
+  const blocked: SocialAuthSubmission = {
+    ...submission,
+    status: AuthPostStatus.BLOCKED,
+    resolvedAt: new Date(),
+    outcome: 'blocked',
+    outcomeReason: reason,
+  };
+
+  const claimed = db.atomicResolve(blocked, {
+    postId: blocked.id,
+    eventType: 'expiration',
+    timestamp: new Date(),
+    details: { reason },
+  });
+
+  if (!claimed) {
+    return interaction.editReply({
+      embeds: [errorEmbed('Already Resolved', `${submission.id} was already resolved by a concurrent interaction.`)],
+    });
+  }
+
+  const message = await getInteractionMessage(interaction, submission.messageId);
+  const blockedEmbed = new EmbedBuilder()
+    .setTitle(`🔴 ${submission.id} Blocked`)
+    .setDescription(`Blocked: ${reason}.\nDestinations: ${submission.destinations.join(', ')}`)
+    .setColor(0xff4444);
+  if (message) await message.edit({ embeds: [blockedEmbed], components: [] });
+
+  return interaction.editReply({
+    embeds: [{ title: '🔴 Post Blocked', description: `**${submission.id}** was blocked by the objection gantry.`, color: 0xff4444 }],
   });
 }
 
@@ -387,6 +609,20 @@ async function handleAuthPostEditSubmit(interaction: ModalSubmitInteraction, _cl
     const submission = db.getSubmission(postId);
     if (!submission) return interaction.editReply({ embeds: [errorEmbed("Not Found", "Auth post not found")] });
 
+    if (submission.status !== AuthPostStatus.PENDING && submission.status !== AuthPostStatus.IN_EDIT) {
+      return interaction.editReply({
+        embeds: [errorEmbed("Cannot Edit", `This post is ${submission.status} and can no longer be edited.`)],
+      });
+    }
+
+    // Only the original submitter or a moderator may resubmit content — the edit modal
+    // is reachable by any member via the "Edit" button, so this must be checked at submit.
+    const canEdit = interaction.user.id === submission.submitterId ||
+      !!interaction.memberPermissions?.has('ManageMessages');
+    if (!canEdit) {
+      return interaction.editReply({ embeds: [errorEmbed("Unauthorized", "Only the submitter or a moderator can edit this post")] });
+    }
+
     const newContent: PostContent = {
       commentary: interaction.fields.getTextInputValue("commentary"),
       articleLink: interaction.fields.getTextInputValue("article_link") || null,
@@ -395,6 +631,16 @@ async function handleAuthPostEditSubmit(interaction: ModalSubmitInteraction, _cl
         .split(/\s+/).map(t => t.replace(/^#/, "")).filter(Boolean),
     };
     const reason = interaction.fields.getTextInputValue("reason") || undefined;
+
+    // Destination constraints (Twitter length, image requirements) can be violated by an
+    // edit just as easily as the original submission — re-validate before persisting.
+    const validationIssues = validatePostForDestinations(newContent, submission.destinations);
+    const hardErrors = validationIssues.filter(e => e.severity === 'error');
+    if (hardErrors.length > 0) {
+      return interaction.editReply({
+        embeds: [errorEmbed('Validation Error', hardErrors.map(e => e.message).join('\n'))],
+      });
+    }
 
     db.addEdit(postId, {
       editedBy: interaction.user.id,
@@ -405,6 +651,13 @@ async function handleAuthPostEditSubmit(interaction: ModalSubmitInteraction, _cl
       reason,
     });
 
+    // Re-run AI risk assessment against the edited content — the prior annotation described
+    // text that no longer exists, so it must not be shown as if it still applies.
+    let riskAnnotation: Awaited<ReturnType<typeof assessRisk>> | null = null;
+    try {
+      riskAnnotation = await assessRisk({ content: newContent, destinations: submission.destinations, submitterSensitivity: submission.sensitivity });
+    } catch { /* LLM unavailable — proceed without annotation */ }
+
     // Edits invalidate prior votes - approvers were approving the old text. Reset to PENDING.
     const reset: SocialAuthSubmission = {
       ...submission,
@@ -412,6 +665,10 @@ async function handleAuthPostEditSubmit(interaction: ModalSubmitInteraction, _cl
       status: AuthPostStatus.PENDING,
       approveVotes: [],
       objectVotes: [],
+      aiRiskVerdict: riskAnnotation?.verdict,
+      aiSuggestedSensitivity: riskAnnotation?.suggestedSensitivity,
+      aiRiskSummary: riskAnnotation?.summary,
+      aiRiskFlags: riskAnnotation?.flags,
     };
     const retimed = {
       ...reset,
@@ -474,7 +731,11 @@ async function handleAuthPostInfo(interaction: ButtonInteraction, _client: BotCl
   }
 }
 
-function createAuthPostEmbed(submission: SocialAuthSubmission, timerCalc: TimerCalculation): EmbedBuilder {
+function createAuthPostEmbed(
+  submission: SocialAuthSubmission,
+  timerCalc: TimerCalculation,
+  riskAnnotation?: Awaited<ReturnType<typeof assessRisk>> | null
+): EmbedBuilder {
   const approveCount = submission.approveVotes.length;
   const objectCount = submission.objectVotes.length;
 
@@ -485,10 +746,7 @@ function createAuthPostEmbed(submission: SocialAuthSubmission, timerCalc: TimerC
   if (timerCalc.gantryState === GantryState.NATURAL_APPROVAL) gantryStatus = "🟢 Natural Approval";
   else if (timerCalc.gantryState === GantryState.OBJECTION) gantryStatus = "🔴 Objection Gantry";
 
-  let post = submission.content.commentary;
-  if (submission.content.articleLink) post += `\n${submission.content.articleLink}`;
-  submission.content.policyLinks.forEach(u => { post += `\nSee our policy here: ${u}`; });
-  if (submission.content.hashtags.length) post += `\n${submission.content.hashtags.map(t => `#${t}`).join(" ")}`;
+  const post = composePostText(submission.content);
 
   const embed = new EmbedBuilder()
     .setTitle(`Auth Post: ${submission.id}`)
@@ -510,6 +768,36 @@ function createAuthPostEmbed(submission: SocialAuthSubmission, timerCalc: TimerC
     embed.addFields({ name: "Edits", value: `${submission.edits.length} revision(s) so far`, inline: true });
   }
 
+  // AI risk annotation — shown when assessment is available
+  const risk = riskAnnotation ?? (submission.aiRiskSummary ? {
+    verdict: submission.aiRiskVerdict,
+    suggestedSensitivity: submission.aiSuggestedSensitivity,
+    summary: submission.aiRiskSummary,
+    flags: submission.aiRiskFlags ?? [],
+  } : null);
+
+  if (risk?.summary) {
+    const verdictEmoji = risk.verdict === 'escalate' ? '⚠️' : risk.verdict === 'downgrade' ? '🔽' : '✅';
+    const sensitivityNote = risk.suggestedSensitivity && risk.suggestedSensitivity !== submission.sensitivity
+      ? ` (suggests **${risk.suggestedSensitivity}**)`
+      : '';
+    embed.addFields({
+      name: `${verdictEmoji} AI Risk Assessment${sensitivityNote}`,
+      value: risk.summary.substring(0, 500),
+      inline: false,
+    });
+    const criticalFlags = (risk.flags ?? []).filter((f: { severity: string }) => f.severity === 'critical');
+    if (criticalFlags.length) {
+      embed.addFields({
+        name: '🚨 Critical Flags',
+        value: criticalFlags.map((f: { reason: string; policyReference?: string }) =>
+          `• ${f.reason}${f.policyReference ? ` *(${f.policyReference})*` : ''}`
+        ).join('\n').substring(0, 500),
+        inline: false,
+      });
+    }
+  }
+
   return embed;
 }
 
@@ -519,9 +807,235 @@ function createAuthPostButtons(postId: string): ActionRowBuilder<ButtonBuilder>[
       new ButtonBuilder().setCustomId(`authpost_approve_${postId}`).setLabel("✅ Approve").setStyle(ButtonStyle.Success),
       new ButtonBuilder().setCustomId(`authpost_object_${postId}`).setLabel("❌ Object").setStyle(ButtonStyle.Danger),
       new ButtonBuilder().setCustomId(`authpost_edit_open_${postId}`).setLabel("✏️ Edit").setStyle(ButtonStyle.Secondary),
+      new ButtonBuilder().setCustomId(`authpost_request_edit_${postId}`).setLabel("↩️ Send Back").setStyle(ButtonStyle.Secondary),
       new ButtonBuilder().setCustomId(`authpost_info_${postId}`).setLabel("📋 Details").setStyle(ButtonStyle.Primary)
     ),
   ];
+}
+
+async function handleAuthPostManualPublish(interaction: ButtonInteraction, _client: BotClient) {
+  try {
+    await interaction.deferReply({ ephemeral: true });
+    const db = new SocialAuthDatabaseManager();
+    const postId = interaction.customId.split("_")[2];
+    const submission = db.getSubmission(postId);
+    if (!submission) return interaction.editReply({ embeds: [errorEmbed("Not Found", "Auth post not found")] });
+    if (submission.status !== AuthPostStatus.APPROVED && submission.status !== AuthPostStatus.PUBLISH_FAILED) {
+      return interaction.editReply({ embeds: [errorEmbed("Invalid State", `Post is ${submission.status}, not approved`)] });
+    }
+
+    // Only an approver-pool member, the submitter, or a moderator may trigger a publish —
+    // otherwise the authpost_publish_* button could be replayed by any user.
+    if (!isAuthorisedApprover(interaction, submission)) {
+      return interaction.editReply({ embeds: [errorEmbed("Unauthorized", "Only an approver, the submitter, or a moderator can publish this post")] });
+    }
+
+    // Atomically claim APPROVED/PUBLISH_FAILED → PUBLISHING before calling Fedica so a
+    // replayed button click or a concurrent withdraw cannot race the external call.
+    const claimed = db.atomicResolve(
+      { ...submission, status: AuthPostStatus.PUBLISHING },
+      { postId: submission.id, eventType: 'publish_attempt', timestamp: new Date(), details: { trigger: 'manual' } },
+      submission.status
+    );
+    if (!claimed) {
+      return interaction.editReply({ embeds: [errorEmbed("Already In Progress", `${submission.id} is already being published or was resolved by a concurrent interaction.`)] });
+    }
+
+    const message = await getInteractionMessage(interaction, submission.messageId);
+    const pendingEmbed = new EmbedBuilder()
+      .setTitle(`📤 ${submission.id} — Publishing to Fedica`)
+      .setDescription(`Manual publish triggered by <@${interaction.user.id}>`)
+      .setColor(0x00aa00);
+    if (message) await message.edit({ embeds: [pendingEmbed], components: [] });
+
+    let result;
+    try {
+      result = await publishToFedica(submission);
+    } catch (error) {
+      result = { success: false as const, error: error instanceof Error ? error.message : String(error) };
+    }
+    const finalSubmission: SocialAuthSubmission = result.success
+      ? { ...submission, status: AuthPostStatus.PUBLISHED, publishedAt: new Date(), fedicaPostId: result.fedicaPostId, fedicaScheduledAt: result.fedicaScheduledAt }
+      : { ...submission, status: AuthPostStatus.PUBLISH_FAILED, fedicaError: result.error };
+    db.atomicResolve(finalSubmission, {
+      postId: submission.id,
+      eventType: result.success ? 'publish_success' : 'publish_failure',
+      timestamp: new Date(),
+      details: result,
+    }, AuthPostStatus.PUBLISHING);
+
+    const schedStr = result.fedicaScheduledAt ? `\nScheduled: **${result.fedicaScheduledAt.toISOString()}**` : '';
+    const finalEmbed = new EmbedBuilder()
+      .setTitle(result.success ? `📅 ${submission.id} Scheduled` : `❌ ${submission.id} Publish Failed`)
+      .setDescription(result.success ? `Destinations: ${submission.destinations.join(', ')}${schedStr}\nFedica ID: ${result.fedicaPostId}` : `Error: ${result.error}`)
+      .setColor(result.success ? 0x00aa00 : 0xff4444);
+    const retryComponents = result.success ? [] : [
+      new ActionRowBuilder<ButtonBuilder>().addComponents(
+        new ButtonBuilder().setCustomId(`authpost_publish_${submission.id}`).setLabel('🔄 Retry Publish').setStyle(ButtonStyle.Primary),
+        new ButtonBuilder().setCustomId(`authpost_withdraw_${submission.id}`).setLabel('🚫 Withdraw').setStyle(ButtonStyle.Danger),
+      ),
+    ];
+    if (message) await message.edit({ embeds: [finalEmbed], components: retryComponents });
+
+    return interaction.editReply({
+      embeds: [{ title: result.success ? '✅ Published' : '⚠️ Publish Failed', description: result.success ? `**${submission.id}** scheduled on Fedica.${schedStr}` : result.error, color: result.success ? 0x00aa00 : 0xff4444 }],
+    });
+  } catch (error) {
+    return interaction.editReply({ embeds: [errorEmbed("Publish Error", String(error))] });
+  }
+}
+
+async function handleAuthPostWithdraw(interaction: ButtonInteraction, _client: BotClient) {
+  try {
+    await interaction.deferReply({ ephemeral: true });
+    const db = new SocialAuthDatabaseManager();
+    const postId = interaction.customId.split("_")[2];
+    const submission = db.getSubmission(postId);
+    if (!submission) return interaction.editReply({ embeds: [errorEmbed("Not Found", "Auth post not found")] });
+
+    // Terminal states cannot be withdrawn — a stale button must not un-publish or
+    // re-open an already-finished submission.
+    if (TERMINAL_STATUSES.includes(submission.status)) {
+      return interaction.editReply({ embeds: [errorEmbed("Already Closed", `**${submission.id}** is ${submission.status} and can no longer be withdrawn.`)] });
+    }
+
+    const canWithdraw = interaction.user.id === submission.submitterId ||
+      interaction.memberPermissions?.has('ManageMessages');
+    if (!canWithdraw) {
+      return interaction.editReply({ embeds: [errorEmbed("Unauthorized", "Only the submitter or a moderator can withdraw this post")] });
+    }
+
+    db.updateSubmission({ ...submission, status: AuthPostStatus.WITHDRAWN, resolvedAt: new Date(), outcome: 'withdrawn', outcomeReason: `Withdrawn by ${interaction.user.username}` });
+
+    const message = await getInteractionMessage(interaction, submission.messageId);
+    const withdrawnEmbed = new EmbedBuilder()
+      .setTitle(`🚫 ${submission.id} Withdrawn`)
+      .setDescription(`Withdrawn by <@${interaction.user.id}>`)
+      .setColor(0x888888);
+    if (message) await message.edit({ embeds: [withdrawnEmbed], components: [] });
+
+    return interaction.editReply({ embeds: [{ title: '🚫 Withdrawn', description: `**${submission.id}** has been withdrawn.`, color: 0x888888 }] });
+  } catch (error) {
+    return interaction.editReply({ embeds: [errorEmbed("Withdraw Error", String(error))] });
+  }
+}
+
+/**
+ * Approver sends the post back to the submitter for revisions.
+ * Sets status to IN_EDIT, pausing the timer and showing a Resubmit button.
+ */
+async function handleAuthPostRequestEdit(interaction: ButtonInteraction, _client: BotClient) {
+  try {
+    await interaction.deferReply({ ephemeral: true });
+    const db = new SocialAuthDatabaseManager();
+    const postId = interaction.customId.split("_")[3];
+    const submission = db.getSubmission(postId);
+    if (!submission) return interaction.editReply({ embeds: [errorEmbed("Not Found", "Auth post not found")] });
+    if (submission.status !== AuthPostStatus.PENDING) {
+      return interaction.editReply({ embeds: [errorEmbed("Invalid State", `Post is ${submission.status}, not pending`)] });
+    }
+
+    // Sending a post back to IN_EDIT interrupts the approval path — restrict it to
+    // approver-pool members, the submitter, or a moderator.
+    if (!isAuthorisedApprover(interaction, submission)) {
+      return interaction.editReply({ embeds: [errorEmbed("Unauthorized", "Only an approver, the submitter, or a moderator can send this post back for edits")] });
+    }
+
+    db.updateSubmission({ ...submission, status: AuthPostStatus.IN_EDIT });
+    db.addAuditLog({
+      postId,
+      eventType: 'edit',
+      actorId: interaction.user.id,
+      actorName: interaction.user.username,
+      timestamp: new Date(),
+      details: { action: 'sent_for_edits' },
+    });
+
+    const needsEditsEmbed = new EmbedBuilder()
+      .setTitle(`✏️ ${postId} — Needs Edits`)
+      .setDescription(
+        `Sent back for edits by <@${interaction.user.id}>.\n` +
+        `<@${submission.submitterId}> please revise and click **Resubmit**.`
+      )
+      .setColor(0x5c9de0);
+    const resubmitButtons = new ActionRowBuilder<ButtonBuilder>().addComponents(
+      new ButtonBuilder().setCustomId(`authpost_edit_open_${postId}`).setLabel('✏️ Resubmit').setStyle(ButtonStyle.Primary),
+      new ButtonBuilder().setCustomId(`authpost_withdraw_${postId}`).setLabel('🚫 Withdraw').setStyle(ButtonStyle.Danger),
+      new ButtonBuilder().setCustomId(`authpost_info_${postId}`).setLabel('📋 Details').setStyle(ButtonStyle.Secondary),
+    );
+
+    const message = await getInteractionMessage(interaction, submission.messageId);
+    if (message) await message.edit({ embeds: [needsEditsEmbed], components: [resubmitButtons] });
+
+    return interaction.editReply({
+      embeds: [{
+        title: '↩️ Sent for Edits',
+        description: `**${postId}** sent back to <@${submission.submitterId}> for revisions.`,
+        color: 0x5c9de0,
+      }],
+    });
+  } catch (error) {
+    return interaction.editReply({ embeds: [errorEmbed("Error", String(error))] });
+  }
+}
+
+/**
+ * Cancel the 15-minute hold window and revert to manual-publish mode.
+ * Keeps the APPROVED status but clears holdUntil so the timer service won't auto-fire.
+ */
+async function handleAuthPostCancelHold(interaction: ButtonInteraction, _client: BotClient) {
+  try {
+    await interaction.deferReply({ ephemeral: true });
+    const db = new SocialAuthDatabaseManager();
+    const postId = interaction.customId.split("_")[3];
+    const submission = db.getSubmission(postId);
+    if (!submission) return interaction.editReply({ embeds: [errorEmbed("Not Found", "Auth post not found")] });
+    if (submission.status !== AuthPostStatus.APPROVED) {
+      return interaction.editReply({ embeds: [errorEmbed("Invalid State", `Post is ${submission.status}, not approved`)] });
+    }
+
+    const canCancel = interaction.user.id === submission.submitterId ||
+      interaction.memberPermissions?.has('ManageMessages');
+    if (!canCancel) {
+      return interaction.editReply({ embeds: [errorEmbed("Unauthorized", "Only the submitter or a moderator can cancel the hold")] });
+    }
+
+    // Clear holdUntil so the timer service won't auto-publish; the Fedica scheduledAt stays.
+    db.updateSubmission({ ...submission, holdUntil: undefined });
+    db.addAuditLog({
+      postId,
+      eventType: 'timer_update',
+      actorId: interaction.user.id,
+      actorName: interaction.user.username,
+      timestamp: new Date(),
+      details: { action: 'hold_cancelled' },
+    });
+
+    const manualEmbed = new EmbedBuilder()
+      .setTitle(`✅ ${postId} Approved — Awaiting Manual Publish`)
+      .setDescription(
+        `Hold cancelled by <@${interaction.user.id}>. Use the Publish button when ready.\n` +
+        `Destinations: ${submission.destinations.join(', ')}`
+      )
+      .setColor(0x5c9de0);
+    const publishButtons = new ActionRowBuilder<ButtonBuilder>().addComponents(
+      new ButtonBuilder().setCustomId(`authpost_publish_${postId}`).setLabel('📤 Publish to Fedica').setStyle(ButtonStyle.Primary),
+      new ButtonBuilder().setCustomId(`authpost_withdraw_${postId}`).setLabel('🚫 Withdraw').setStyle(ButtonStyle.Danger),
+    );
+
+    const message = await getInteractionMessage(interaction, submission.messageId);
+    if (message) await message.edit({ embeds: [manualEmbed], components: [publishButtons] });
+
+    return interaction.editReply({
+      embeds: [{
+        title: '✅ Hold Cancelled',
+        description: `**${postId}** auto-publish cancelled. Use the Publish button when ready.`,
+        color: 0x5c9de0,
+      }],
+    });
+  } catch (error) {
+    return interaction.editReply({ embeds: [errorEmbed("Error", String(error))] });
+  }
 }
 
 async function getInteractionMessage(interaction: ButtonInteraction, messageId: string) {
@@ -540,4 +1054,8 @@ export {
   handleAuthPostEditOpen,
   handleAuthPostEditSubmit,
   handleAuthPostInfo,
+  handleAuthPostManualPublish,
+  handleAuthPostWithdraw,
+  handleAuthPostRequestEdit,
+  handleAuthPostCancelHold,
 };

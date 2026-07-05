@@ -1,0 +1,84 @@
+{
+  "env": [
+    {
+      "key": "DISCORD_GUILD_ID",
+      "description": "Guild ID to register module slash commands in (omit for global commands)",
+      "required": false
+    },
+    {
+      "key": "QUEUE_CHANNEL_ID",
+      "description": "Discord channel snowflake for the standing #auth-queue message (social-auth)",
+      "required": true
+    },
+    {
+      "key": "FEDICA_API_KEY",
+      "description": "Bearer token for the Fedica API (social-auth) — stub mode active without this",
+      "required": false
+    },
+    {
+      "key": "FEDICA_API_URL",
+      "description": "Override Fedica base URL (social-auth, default: https://api.fedica.com/api)",
+      "required": false
+    },
+    {
+      "key": "LLM_API_KEY",
+      "description": "Anthropic API key for AI risk assessment (social-auth) — stub mode active without this",
+      "required": false
+    },
+    {
+      "key": "LLM_MODEL",
+      "description": "Claude model ID for risk assessment (social-auth, e.g. claude-sonnet-5)",
+      "required": false
+    },
+    {
+      "key": "POLICY_INDEX_URL",
+      "description": "Vector store URL for policy RAG retrieval (social-auth)",
+      "required": false
+    },
+    {
+      "key": "COMMS_CALENDAR_CHANNEL_ID",
+      "description": "Discord channel for the standing #comms-cal days-of-significance embed",
+      "required": false
+    },
+    {
+      "key": "YOUTUBE_CHANNEL_ID",
+      "description": "YouTube channel ID to poll for new uploads (youtube-announcements)",
+      "required": false
+    },
+    {
+      "key": "ANNOUNCEMENTS_CHANNEL_ID",
+      "description": "Discord channel to post new-video announcements in (youtube-announcements)",
+      "required": false
+    },
+    {
+      "key": "EVENTS_CALENDAR_CHANNEL_ID",
+      "description": "Discord channel for the standing Upcoming Event Schedule embed (events-calendar)",
+      "required": false
+    },
+    {
+      "key": "TUNED_ROLE_ID",
+      "description": "Role pinged on event created/changed and 15-min-before reminders (events-calendar)",
+      "required": false
+    },
+    {
+      "key": "GOOGLE_CALENDAR_ID",
+      "description": "The 'Fusion Public & Member Events' Google Calendar ID (events-calendar)",
+      "required": false
+    },
+    {
+      "key": "GOOGLE_CALENDAR_API_KEY",
+      "description": "Read-only Google Calendar API key (events-calendar) — write direction not yet implemented; see TODO in governance/events-calendar/googleCalendar.ts",
+      "required": false
+    },
+    {
+      "key": "BLUESKY_HANDLE",
+      "description": "Bluesky account handle to watch for new posts (upvote-relay), e.g. fusionparty.bsky.social",
+      "required": false
+    },
+    {
+      "key": "UPVOTE_CHANNEL_ID",
+      "description": "Discord channel for relaying new Bluesky posts (upvote-relay)",
+      "required": false
+    }
+  ]
+}

@@ -1,12 +1,12 @@
 /**
  * LLM Content Pipeline — Stub
  *
- * Future integration point for AI-assisted social media content generation.
- * Three-stage pipeline:
+ * Future integration point for AI-assisted social media content generation and risk assessment.
+ * Pipeline stages:
+ *   0. Risk assessment — evaluate submitted content against policy/brand, annotate or escalate sensitivity
  *   1. Topic research  — surface relevant news/issues for the party to comment on
- *   2. Commentary draft — generate candidate commentary grounded in policy/brand voice
- *   3. RAG grounding   — retrieve relevant policy excerpts and brand guidelines to
- *                         constrain and cite in the generated text
+ *   2. RAG grounding   — retrieve relevant policy excerpts and brand guidelines
+ *   3. Commentary draft — generate candidate commentary grounded in policy/brand voice
  *
  * Configuration (environment variables, not yet wired up):
  *   LLM_API_KEY       — Anthropic API key for content generation
@@ -19,21 +19,108 @@
  * `db.createSubmission(...)`.
  *
  * Usage (future):
+ *   // On every submission — annotate risk before posting to #auth-socmed:
+ *   const risk = await assessRisk({ content, submitterSensitivity: 'low', destinations });
+ *   // risk.finalSensitivity may be higher than what the submitter chose
+ *
+ *   // Optional full draft pipeline:
  *   const draft = await generateDraft({ topic: 'climate policy', destinations: ['Twitter/X'] });
  *   // Present to submitter for review/edit before posting to #auth-socmed
  */
 
-import { Destination, PostContent } from './types';
+import { Destination, PostContent, Sensitivity } from './types';
+import { composePostText } from './content';
+import { checkAiWritingStyle } from './ai-writing-style';
+
+/** Credentials/model selection for live LLM calls; unused while assessRisk() is stubbed. */
+export interface LlmPipelineConfig {
+  apiKey: string;
+  model: string;
+  policyIndexUrl?: string;
+}
+
+// ---------------------------------------------------------------------------
+// Stage 0: Risk assessment
+// ---------------------------------------------------------------------------
+
+/** Input to assessRisk(): the content being evaluated and the submitter's declared sensitivity. */
+export interface RiskAssessmentRequest {
+  content: PostContent;
+  destinations: Destination[];
+  submitterSensitivity: Sensitivity;   // What the submitter declared
+}
+
+/** assessRisk()'s verdict: agree (no change), escalate (binding), or downgrade (advisory only). */
+export type RiskVerdict = 'agree' | 'escalate' | 'downgrade';
+
+/** A single risk/style finding attached to a RiskAssessmentResult. */
+export interface RiskFlag {
+  severity: 'info' | 'warning' | 'critical';
+  reason: string;                        // Human-readable explanation
+  policyReference?: string;             // e.g. "EthicalGovernance policy"
+  policyUrl?: string;
+}
+
+/** Full output of assessRisk() — shown as an annotation on the #auth-socmed embed. */
+export interface RiskAssessmentResult {
+  verdict: RiskVerdict;
+  suggestedSensitivity: Sensitivity;    // May match or differ from submitterSensitivity
+  confidence: number;                   // 0–1
+  flags: RiskFlag[];
+  summary: string;                      // One-line annotation shown on the Discord embed
+  generatedBy: string;                  // Model ID or 'stub'
+  promptTokens: number;
+  outputTokens: number;
+}
+
+/**
+ * Assess the risk of a submitted post against party policy and brand guidelines.
+ *
+ * Advisory only — humans retain final say. The result is shown as an annotation
+ * on the #auth-socmed embed. If `suggestedSensitivity` is higher than
+ * `submitterSensitivity`, `SENSITIVITY_CONFIG[suggestedSensitivity]` should be
+ * used to determine requiredApprovals and publish behaviour.
+ *
+ * STUB: returns a neutral assessment. Replace with a real Claude API call that:
+ *   - Receives the post content + policy excerpts from retrievePolicyGrounding()
+ *   - Is prompted to evaluate against the three sensitivity tiers
+ *   - Returns structured JSON matching RiskAssessmentResult
+ *
+ * TODO(llm-integration): wire up with LLM_API_KEY + policy RAG once available.
+ */
+export async function assessRisk(
+  request: RiskAssessmentRequest,
+  _config?: LlmPipelineConfig
+): Promise<RiskAssessmentResult> {
+  console.log(`[LLM Pipeline] assessRisk() called — stub, returning neutral assessment`);
+
+  // The AI-writing-style check is free, deterministic, and local (no LLM_API_KEY needed),
+  // so it runs unconditionally — including in stub mode — unlike the rest of this pipeline.
+  const styleFlags = checkAiWritingStyle(composePostText(request.content));
+
+  return {
+    verdict: 'agree',
+    suggestedSensitivity: request.submitterSensitivity,
+    confidence: 0,
+    flags: styleFlags,
+    summary: `[AI assessment unavailable — LLM_API_KEY not configured]`,
+    generatedBy: 'stub',
+    promptTokens: 0,
+    outputTokens: 0,
+  };
+}
 
 // ---------------------------------------------------------------------------
 // Types
 // ---------------------------------------------------------------------------
 
+/** Input to researchTopics() — currently a stub returning an empty list. */
 export interface TopicResearchRequest {
   keywords?: string[];          // Optional seed keywords; omit to surface trending topics
   maxResults?: number;          // Default 5
 }
 
+/** A single candidate topic surfaced by researchTopics(). */
 export interface TopicResult {
   headline: string;
   summary: string;
@@ -41,6 +128,7 @@ export interface TopicResult {
   relevanceScore: number;       // 0–1, higher = more relevant to party mission
 }
 
+/** A policy/brand-voice excerpt retrieved by retrievePolicyGrounding() for RAG grounding. */
 export interface PolicyExcerpt {
   policyTitle: string;
   excerpt: string;
@@ -48,6 +136,7 @@ export interface PolicyExcerpt {
   relevanceScore: number;
 }
 
+/** Input to generateDraft() — currently a stub returning placeholder content. */
 export interface DraftRequest {
   topic: string;                // The issue or news event to comment on
   destinations: Destination[];
@@ -56,18 +145,13 @@ export interface DraftRequest {
   maxLength?: number;           // Max character count for commentary; default 280
 }
 
+/** Output of generateDraft() — content is shaped to feed directly into SocialAuthSubmissionRequest. */
 export interface DraftResult {
   content: PostContent;         // Ready to pass to SocialAuthSubmissionRequest.content
   policyGrounding: PolicyExcerpt[];
   generatedBy: string;          // Model ID used
   promptTokens: number;
   outputTokens: number;
-}
-
-export interface LlmPipelineConfig {
-  apiKey: string;
-  model: string;
-  policyIndexUrl?: string;
 }
 
 // ---------------------------------------------------------------------------

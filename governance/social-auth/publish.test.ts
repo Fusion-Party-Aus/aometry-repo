@@ -1,5 +1,5 @@
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
-import { parseScheduleFromText, nextWeekdayAt9amAest, buildFedicaPayload } from './publish';
+import { parseScheduleFromText, nextWeekdayAt9amAest, buildFedicaPayload, composePostText, validatePostForDestinations, weightedTweetLength } from './publish';
 import { SocialAuthSubmission, AuthPostStatus, GantryState, VoteType, Sensitivity } from './types';
 
 const FIXED_NOW = new Date('2026-07-01T12:00:00Z'); // Wednesday 2026-07-01 12:00 UTC = 22:00 AEST
@@ -45,6 +45,46 @@ describe('parseScheduleFromText', () => {
   it('returns null for malformed datetime', () => {
     expect(parseScheduleFromText('schedule: not-a-date')).toBeNull();
   });
+
+  it('returns null for an impossible calendar month', () => {
+    // Month 13 must not silently roll over into the next year.
+    expect(parseScheduleFromText('schedule: 2026-13-01T09:00')).toBeNull();
+  });
+
+  it('returns null for an impossible calendar day', () => {
+    // 30 February must not silently roll forward into March.
+    expect(parseScheduleFromText('schedule: 2026-02-30T09:00')).toBeNull();
+  });
+
+  it('returns null for a time inside the Sydney DST spring-forward gap', () => {
+    vi.setSystemTime(new Date('2026-09-01T00:00:00Z'));
+    // 2026-10-04 02:30 does not exist in Sydney — clocks jump 02:00 → 03:00.
+    expect(parseScheduleFromText('schedule: 2026-10-04T02:30')).toBeNull();
+  });
+});
+
+describe('weightedTweetLength', () => {
+  it('counts plain ASCII text by character', () => {
+    expect(weightedTweetLength('Hello world')).toBe(11);
+  });
+
+  it('weights a URL as 23 characters regardless of its real length', () => {
+    const url = 'https://example.com/a/very/long/path?with=query&params=here';
+    expect(url.length).toBeGreaterThan(23);
+    expect(weightedTweetLength(url)).toBe(23);
+  });
+
+  it('weights each URL at 23 and adds surrounding text', () => {
+    // "See: " (5) + url(23) + " and " (5) + url(23) = 56
+    const text = 'See: https://a.example.com/xxxxxxxxxxxxxxxxxxxx and https://b.example.com/yyyyyyyyyyyyyyyy';
+    expect(weightedTweetLength(text)).toBe(56);
+  });
+
+  it('counts a multi-code-unit emoji as a single code point pair, not UTF-16 units', () => {
+    // A short post with an emoji must not be over-counted into a false positive.
+    const text = 'Fusion 🎉';
+    expect(weightedTweetLength(text)).toBeLessThanOrEqual(text.length);
+  });
 });
 
 describe('nextWeekdayAt9amAest', () => {
@@ -53,16 +93,16 @@ describe('nextWeekdayAt9amAest', () => {
     expect(d.getTime()).toBeGreaterThan(FIXED_NOW.getTime());
   });
 
-  it('falls on a weekday (Mon–Fri)', () => {
+  it('falls on a weekday (Mon–Fri) at 09:00 Sydney time', () => {
     const d = nextWeekdayAt9amAest();
-    // After converting back from AEST the UTC day may differ; check day of week in AEST
-    const aestHour = ((d.getUTCHours() + 10) % 24);
-    expect(aestHour).toBe(9);
-    // Day in AEST coordinates
-    const aestDate = new Date(d.getTime() + 10 * 3600 * 1000);
-    const aestDay = aestDate.getUTCDay();
-    expect(aestDay).not.toBe(0); // not Sunday
-    expect(aestDay).not.toBe(6); // not Saturday
+    const fmt = new Intl.DateTimeFormat('en-AU', {
+      timeZone: 'Australia/Sydney', hour: '2-digit', minute: '2-digit', weekday: 'short', hour12: false,
+    });
+    const parts = fmt.formatToParts(d);
+    const get = (t: string) => parts.find(p => p.type === t)!.value;
+    expect(parseInt(get('hour'), 10) % 24).toBe(9);
+    expect(get('minute')).toBe('00');
+    expect(['Sun', 'Sat']).not.toContain(get('weekday'));
   });
 
   it('is 09:00 AEST (23:00 UTC previous day)', () => {
@@ -78,6 +118,23 @@ describe('nextWeekdayAt9amAest', () => {
     const d = nextWeekdayAt9amAest();
     const aestDate = new Date(d.getTime() + 10 * 3600 * 1000);
     expect(aestDate.getUTCDay()).toBe(1); // Monday
+  });
+
+  it('uses AEDT offset (UTC+11) during Australian summer (January)', () => {
+    // 2026-01-15 12:00 UTC = 23:00 AEDT (UTC+11) — still Thursday
+    vi.setSystemTime(new Date('2026-01-15T12:00:00Z'));
+    const d = nextWeekdayAt9amAest();
+    // Next weekday 9am AEDT = Fri 2026-01-16 09:00 AEDT = 2026-01-15T22:00:00Z (UTC+11)
+    expect(d.toISOString()).toBe('2026-01-15T22:00:00.000Z');
+  });
+});
+
+describe('parseScheduleFromText AEDT', () => {
+  it('interprets schedule datetime using Sydney local time (AEDT in January)', () => {
+    vi.setSystemTime(new Date('2026-01-01T00:00:00Z'));
+    // 2026-01-15T09:00 in Sydney = AEDT = UTC+11 → 2026-01-14T22:00Z
+    const d = parseScheduleFromText('schedule: 2026-01-15T09:00');
+    expect(d?.toISOString()).toBe('2026-01-14T22:00:00.000Z');
   });
 });
 
@@ -193,5 +250,99 @@ describe('buildFedicaPayload', () => {
     const payload = buildFedicaPayload(makeSubmission());
     // FIXED_NOW = Wed 2026-07-01 12:00 UTC → next weekday 9am AEST = Thu 2026-07-01T23:00Z
     expect(payload.scheduledAt.toISOString()).toBe('2026-07-01T23:00:00.000Z');
+  });
+});
+
+describe('composePostText', () => {
+  it('commentary only', () => {
+    const text = composePostText({ commentary: 'Hello world', articleLink: null, policyLinks: [], hashtags: [] });
+    expect(text).toBe('Hello world');
+  });
+
+  it('appends article link on new line', () => {
+    const text = composePostText({ commentary: 'Hi', articleLink: 'https://example.com', policyLinks: [], hashtags: [] });
+    expect(text).toBe('Hi\nhttps://example.com');
+  });
+
+  it('appends each policy link on new line', () => {
+    const text = composePostText({ commentary: 'Hi', articleLink: null, policyLinks: ['https://a.com', 'https://b.com'], hashtags: [] });
+    expect(text).toContain('https://a.com');
+    expect(text).toContain('https://b.com');
+  });
+
+  it('appends hashtags prefixed with #', () => {
+    const text = composePostText({ commentary: 'Hi', articleLink: null, policyLinks: [], hashtags: ['auspol', 'fusionparty'] });
+    expect(text).toContain('#auspol');
+    expect(text).toContain('#fusionparty');
+  });
+
+  it('full composition matches buildFedicaPayload text', () => {
+    const content = { commentary: 'Test post', articleLink: 'https://example.com', policyLinks: ['https://policy.com'], hashtags: ['auspol'] };
+    const composed = composePostText(content);
+    expect(composed).toBe('Test post\nhttps://example.com\nSee our policy here: https://policy.com\n#auspol');
+  });
+});
+
+describe('validatePostForDestinations', () => {
+  const shortContent = { commentary: 'Short post', articleLink: null, policyLinks: [], hashtags: ['auspol'] };
+  const longCommentary = 'A'.repeat(281);
+  const longContent = { commentary: longCommentary, articleLink: null, policyLinks: [], hashtags: [] };
+
+  it('returns empty array for valid short post to Twitter/X', () => {
+    const errors = validatePostForDestinations(shortContent, ['Twitter/X']);
+    expect(errors).toHaveLength(0);
+  });
+
+  it('returns a char-limit error when composed text exceeds 280 chars for Twitter/X', () => {
+    const errors = validatePostForDestinations(longContent, ['Twitter/X']);
+    expect(errors.some(e => e.severity === 'error' && e.message.includes('280'))).toBe(true);
+  });
+
+  it('does not flag char limit for non-Twitter destinations', () => {
+    const errors = validatePostForDestinations(longContent, ['Facebook']);
+    expect(errors.every(e => !e.message.includes('280'))).toBe(true);
+  });
+
+  it('returns image warning when Facebook is a destination', () => {
+    const errors = validatePostForDestinations(shortContent, ['Facebook']);
+    expect(errors.some(e => e.severity === 'warning' && e.message.toLowerCase().includes('image'))).toBe(true);
+  });
+
+  it('returns image warning when Instagram is a destination', () => {
+    const errors = validatePostForDestinations(shortContent, ['Instagram']);
+    expect(errors.some(e => e.severity === 'warning' && e.message.toLowerCase().includes('image'))).toBe(true);
+  });
+
+  it('no image warning for Twitter/X only', () => {
+    const errors = validatePostForDestinations(shortContent, ['Twitter/X']);
+    expect(errors.every(e => !e.message.toLowerCase().includes('image'))).toBe(true);
+  });
+
+  it('flags both char limit error and image warning together', () => {
+    const errors = validatePostForDestinations(longContent, ['Twitter/X', 'Facebook']);
+    expect(errors.some(e => e.severity === 'error' && e.message.includes('280'))).toBe(true);
+    expect(errors.some(e => e.severity === 'warning' && e.message.toLowerCase().includes('image'))).toBe(true);
+  });
+
+  it('char limit error includes actual weighted character count', () => {
+    const errors = validatePostForDestinations(longContent, ['Twitter/X']);
+    const charError = errors.find(e => e.severity === 'error' && e.message.includes('280'))!;
+    expect(charError.message).toContain(String(weightedTweetLength(composePostText(longContent))));
+  });
+
+  it('does not flag a URL-heavy but short post that only exceeds 280 by raw length', () => {
+    // Three long URLs raw-count well over 280, but weighted they are 23 each (~75 + text).
+    const urlHeavy = {
+      commentary: 'Read our three latest policy pieces:',
+      articleLink: 'https://www.fusionparty.org.au/climate_rescue_full_detailed_explainer_page',
+      policyLinks: [
+        'https://www.fusionparty.org.au/future_focused_full_detailed_explainer_page',
+        'https://www.fusionparty.org.au/education_for_life_full_detailed_explainer_page',
+      ],
+      hashtags: ['auspol'],
+    };
+    expect(composePostText(urlHeavy).length).toBeGreaterThan(280);
+    const errors = validatePostForDestinations(urlHeavy, ['Twitter/X']);
+    expect(errors.some(e => e.severity === 'error' && e.message.includes('280'))).toBe(false);
   });
 });

@@ -10,15 +10,18 @@
 import { BotClient } from "@/types/discord";
 import { EmbedBuilder } from "discord.js";
 import { SocialAuthDatabaseManager } from "./database";
-import { updateSubmissionTimer, getTimeRemaining } from "./calculator";
+import { updateSubmissionTimer, getTimeRemaining, isHoldPublishDue } from "./calculator";
+import { publishToFedica } from "./publish";
+import { initQueueMessage, refreshQueueMessage } from "./queue";
 import { AuthPostStatus, GantryState, TIMER_CONSTANTS } from "./types";
 
 const CHECK_INTERVAL_MS = TIMER_CONSTANTS.UPDATE_INTERVAL_MS;
 
+/** Initialise the standing queue message and start the 60s polling loop. Call once on bot ready. */
 export function startSocialAuthTimerService(client: BotClient) {
   console.log("[Social Auth Timer Service] Started background timer service");
 
-  void safeCheck(client);
+  void initQueueMessage(client).then(() => safeCheck(client));
   setInterval(() => {
     void safeCheck(client);
   }, CHECK_INTERVAL_MS);
@@ -27,6 +30,7 @@ export function startSocialAuthTimerService(client: BotClient) {
 async function safeCheck(client: BotClient) {
   try {
     await checkPendingSubmissions(client);
+    await refreshQueueMessage(client);
   } catch (error) {
     console.error("[Social Auth Timer Service] Check failed:", error);
   }
@@ -37,6 +41,35 @@ async function checkPendingSubmissions(client: BotClient) {
   const active = db.getActiveSubmissions();
 
   for (const submission of active) {
+    if (submission.status === AuthPostStatus.IN_EDIT) {
+      // Timer runs while in edit — expire stale submissions that were never resubmitted.
+      if (getTimeRemaining(submission) <= 0) {
+        const blocked = {
+          ...submission,
+          status: AuthPostStatus.BLOCKED,
+          resolvedAt: new Date(),
+          outcome: 'blocked' as const,
+          outcomeReason: 'Timer expired while awaiting resubmission',
+        };
+        // Guard against the read-then-write race: only transition if the row is still
+        // IN_EDIT in the DB. A concurrent resubmit may have already moved it to PENDING
+        // off this stale in-memory snapshot, and that must not be overwritten as BLOCKED.
+        const claimed = db.atomicResolve(blocked, {
+          postId: submission.id,
+          eventType: 'expiration',
+          timestamp: new Date(),
+          details: { reason: 'in_edit_timeout' },
+        }, AuthPostStatus.IN_EDIT);
+        if (claimed) {
+          await notifyChannel(
+            client, submission.channelId, submission.messageId,
+            `⏱️ **${submission.id}** expired while awaiting resubmission and has been blocked. Re-submit if still needed.`
+          );
+        }
+      }
+      continue;
+    }
+
     if (submission.status !== AuthPostStatus.PENDING) continue;
 
     const prevGantry = submission.timerCalculation.gantryState;
@@ -91,6 +124,72 @@ async function checkPendingSubmissions(client: BotClient) {
           `<@${submission.submitterId}>`
         );
       }
+    }
+  }
+
+  // Auto-publish APPROVED submissions in "hold" state once the hold window has passed.
+  // holdUntil (not scheduledAt) is the auto-publish trigger, so manual-publish posts
+  // that carry a future Fedica scheduledAt are never fired by the timer.
+  const holdSubmissions = db.getSubmissionsInState(AuthPostStatus.APPROVED);
+  for (const submission of holdSubmissions) {
+    if (!isHoldPublishDue(submission.holdUntil)) continue;
+
+    // Atomically claim APPROVED → PUBLISHING before the external call so an overlapping
+    // tick (or a second bot instance) cannot publish the same submission twice.
+    const claimed = db.atomicResolve(
+      { ...submission, status: AuthPostStatus.PUBLISHING },
+      { postId: submission.id, eventType: 'publish_attempt', timestamp: new Date(), details: { trigger: 'hold_elapsed' } },
+      AuthPostStatus.APPROVED
+    );
+    if (!claimed) continue;
+
+    // A thrown error (vs. a returned { success: false }) must still resolve the claimed
+    // row — otherwise it is stuck in PUBLISHING forever and never re-enters the retry path.
+    let result;
+    try {
+      result = await publishToFedica(submission);
+    } catch (error) {
+      result = { success: false as const, error: error instanceof Error ? error.message : String(error) };
+    }
+    const now = new Date();
+
+    if (result.success) {
+      const published = {
+        ...submission,
+        status: AuthPostStatus.PUBLISHED,
+        publishedAt: now,
+        fedicaPostId: result.fedicaPostId,
+        fedicaScheduledAt: result.fedicaScheduledAt,
+        fedicaError: undefined,
+        holdUntil: undefined,
+      };
+      db.atomicResolve(published, {
+        postId: submission.id,
+        eventType: 'publish_success',
+        timestamp: now,
+        details: { fedicaPostId: result.fedicaPostId, fedicaScheduledAt: result.fedicaScheduledAt },
+      }, AuthPostStatus.PUBLISHING);
+      await notifyChannel(
+        client, submission.channelId, submission.messageId,
+        `✅ **${submission.id}** has been published to Fedica (hold period elapsed).`
+      );
+    } else {
+      const failed = {
+        ...submission,
+        status: AuthPostStatus.PUBLISH_FAILED,
+        fedicaError: result.error,
+        holdUntil: undefined,
+      };
+      db.atomicResolve(failed, {
+        postId: submission.id,
+        eventType: 'publish_failure',
+        timestamp: now,
+        details: { error: result.error },
+      }, AuthPostStatus.PUBLISHING);
+      await notifyChannel(
+        client, submission.channelId, submission.messageId,
+        `❌ **${submission.id}** auto-publish failed: ${result.error}. Use the Publish button to retry.`
+      );
     }
   }
 }
