@@ -13,54 +13,58 @@ Aometry's own docs ([`docs/SPEC_SHEET.md`](https://github.com/Axion-AU/Aometry/b
 
 **No Dockerfile / docker-compose here, deliberately.** A `docker-compose.yml` was removed earlier in this repo's history at a PR reviewer's request — containerization is the private host's concern (it's the thing that actually runs), not this content-only plugin package's. The same reasoning rules out a Dockerfile: there's no `npm start`, no server, no bot login to containerize — the only thing it could wrap is `npm ci && npm run typecheck && npm test`, which CI already does directly. If a reproducible-environment doc is ever wanted, prefer keeping it CI-equivalent-only and clearly labelled as verification, not "how to run the bot" — see `SETUP.md` for the actual step-by-step instead.
 
-## Fusion Party's structure — a federated merger, not a unitary party
+## Fusion Party's structure — snapshot as of 2026, per the actual Constitution
 
-Fusion Party (Australia) is a **federated merger of five former microparties**: Science
-Party, Pirate Party, Secular Party, Vote Planet, and Climate Change Justice Party. It
-formed in 2021 after the Electoral Legislation Amendment (Party Registration Integrity)
-Bill raised the non-parliamentary party membership threshold from 500 to 1,500 — merging
-was a practical response to that, not an ideological unification. Per Wikipedia, the
-merged parties **retain a degree of autonomy as formal branches**, not just historical
-labels. This is a real structural fact worth keeping in mind for any governance-adjacent
-feature, not just trivia: **this is why Fusion is a "uniparty" only nominally — its
-member base is explicitly multi-affiliated by design, unlike most single-origin parties.**
+Fusion Party (Australia) originated as a **2021 federated merger of five former
+microparties** — Science Party, Pirate Party, Secular Party, Vote Planet, and Climate
+Change Justice Party — prompted by the Electoral Legislation Amendment (Party Registration
+Integrity) Bill raising the non-parliamentary party membership threshold from 500 to 1,500.
+That's the historical origin. **The governing document today is different from that
+history in an important way**: read
+[`Fusion-Party-Aus/Formal-Documents`'s `Constitution.md`](https://github.com/Fusion-Party-Aus/Formal-Documents/blob/main/Constitution.md)
+(Rules of Association, **v1.8, approved 7 June 2026**) directly rather than relying on
+the merger narrative — it defines "Branch" (Rule 91) as a formal constitutional unit,
+and **the named microparties don't actually appear anywhere in the Constitution's text.**
+Branch ≠ microparty-of-origin as a matter of formal rule, even though the live Discord
+`/roleset`'s Movement set (`@Science`, `@Pirate`, `@Secular`, `@Vote Planet`,
+`@Climate Justice`, `@Progressive`) clearly tracks the historical microparty identities
+in practice.
 
-This is already reflected live on the Discord server: the `/roleset list` screenshot
-shared in PR #4 shows a **Movement** roleset (`@Science`, `@Pirate`, `@Secular`,
-`@Vote Planet`, `@Climate Justice`, `@Progressive`) configured as `UNIQUE` — i.e.
-single-choice/exclusive. A member can currently only hold one branch role at a time,
-which is a *narrower* model than the party's actual federated structure technically
-allows (nothing says a member can't care about both Science and Climate Justice).
+**Multi-branch membership is real, but capped — not open multi-affiliation** (Rule 92):
+a member registers to **one Branch only**, except State Branch members may additionally
+join **one (1) other, non-State Branch**. So the maximum is two: one State + one other.
+This is exactly what the live roleset already implements via two separate `UNIQUE` groups
+(State, Movement) — a member holding one State role and one Movement role simultaneously
+*is* the constitutionally-correct maximum, not a limitation. There is no basis in the
+Constitution for open multi-select Movement affiliation beyond that.
 
-**Why this matters for future feature work, and what's genuinely still open:**
+**No differential vote weighting by branch exists or is constitutionally contemplated**
+(Rules 14, 66): general members have equal votes; the Committee has up to one Branch
+Representative per branch, which is *representation*, not weighted voting power;
+Committee decisions require 60% support regardless of branch composition. **"Area of
+concern" as a governance concept isn't in the Constitution at all** — it only exists
+informally today as `social-auth`'s `POLICY_TAGS`.
 
-- There's a standing desire (not yet a committed feature) to have the bot meaningfully
-  support this multi-branch structure, rather than just modeling Fusion as a flat,
-  single-identity party. Two distinct sub-questions, both currently unresolved — see
-  **issue #7**:
-  1. Should branch/movement role selection stop being exclusive (`UNIQUE` → multi-select),
-     so members can formally affiliate with more than one microparty branch? This is a
-     **host-level `/roleset` config change** — this repo's code doesn't control roleset
-     exclusivity (see role-police section below), so this alone isn't something a PR here
-     can implement; it needs the maintainers to reconfigure the host's roleset.
-  2. *If* multi-affiliation becomes possible, should governance vote weight (`ncap` /
-     `social-auth` approvals) reflect it at all? Current lean (not a decision): weighting
-     by **area-of-concern** (topic-based engagement) is likely safer and less
-     factionally-loaded than weighting by branch-of-origin directly, since formalizing
-     microparty affiliation into vote power invites "stacking" optics in a party that
-     explicitly merged to move past microparty silos — but this is the party's own
-     governance-design call, not a technical one, and nothing here should be built
-     against a guess.
-- **Issue #8** (split off from #7, more tractable): `social-auth` already lets submitters
-  tag posts with both `HASHTAGS_BRANCH` (7 microparty hashtags) and `POLICY_TAGS` (14
-  topic/area-of-concern tags), persisted per submission. That data already supports a
-  read-only fairness/coverage report (e.g. "which branch/topic hasn't been posted about
-  recently") without touching voting logic at all — a much smaller, non-MVP-blocking win
-  that doesn't depend on resolving the harder roleset/weighting questions above.
+**Functional reality in 2026, per finneh4249 (maintainer) on issue #8** — worth recording
+since it doesn't show up in either the Constitution or the code: most named branches
+don't operate as distinct organisations day-to-day anymore. Science and Vote Planet are
+"functionally Fusion"; Secular is dormant; Aus Progressives is an alliance partner in
+talks to become a branch, not currently one; **Democracy First is no longer affiliated
+with the party at all** (yet `HASHTAGS_BRANCH` in `governance/social-auth/types.ts` still
+lists it — a real staleness bug, not a design question); Pirate is the one branch that
+still functions as its own independent organisation with its own meetings/events. His
+view: most members identify as Fusion first, so content should draw from "a consistent
+[Fusion] point of view" rather than rotating by branch.
 
-Neither of these is scoped for implementation yet. Recorded here so this context survives
-between sessions/contributors rather than needing to be re-derived from PR discussion each
-time it comes up.
+**Resolved, via issues #7 and #8 (finneh4249's replies, 2026-07-05) — don't re-litigate:**
+- Movement roleset is **not** changing from `UNIQUE` to multi-select "presently."
+- Vote weighting by branch or area-of-concern is **rejected**: "Area of concern is
+  inherently the better system, and vote weighting isn't required... it introduces
+  governance complexity for not much benefit."
+- Branch-based coverage/fairness stats (the original pitch in issue #8) don't map to how
+  the party actually operates now, per the functional-reality note above — if a coverage
+  report happens at all, it should likely be area-of-concern-based only, not
+  branch-based. Not scoped for implementation.
 
 ## Repo philosophy: extensions/mods, not a fork — and not everything belongs here
 

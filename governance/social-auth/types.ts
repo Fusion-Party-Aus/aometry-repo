@@ -98,10 +98,13 @@ export const POLICY_TAGS: { tag: string; url: string }[] = [
 /** Core hashtags always pre-selected, mirrors TAGS_CORE */
 export const HASHTAGS_CORE = ['auspol', 'fusionparty'];
 
-/** Branch/partner hashtags, mirrors TAGS_BRANCH */
+/**
+ * Branch/partner hashtags, mirrors TAGS_BRANCH. Per finneh4249 (issue #8), Democracy
+ * First is no longer affiliated with the party — removed rather than left stale.
+ */
 export const HASHTAGS_BRANCH = [
   'ScienceParty', 'PirateParty', 'SecularParty',
-  'VotePlanet', 'ClimateJustice', 'AusProgressives', 'DemocracyFirst'
+  'VotePlanet', 'ClimateJustice', 'AusProgressives'
 ];
 
 /**
