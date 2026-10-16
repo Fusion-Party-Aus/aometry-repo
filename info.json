@@ -1,11 +1,25 @@
 {
   "name": "Fusion-Party-Aus/aometry-repo",
-  "version": "1.0.0",
+  "version": "1.1.0",
   "modules": [
     {
       "name": "governance",
       "path": "governance",
       "description": "Fusion Party governance and voting system"
+    },
+    {
+      "name": "membership",
+      "path": "membership",
+      "description": "Fusion membership verification through Underground CRM",
+      "requiredEnv": [
+        { "key": "FUSION_MEMBERSHIP_ENABLED", "default": "false", "description": "Enable only after role policy and deployment approval" },
+        { "key": "FUSION_MEMBERSHIP_CRM_URL", "default": "", "description": "HTTPS base URL of Underground CRM" },
+        { "key": "FUSION_MEMBERSHIP_TOKEN", "default": "", "description": "Dedicated CRM integration secret; not the host management key" },
+        { "key": "FUSION_MEMBERSHIP_GUILD_ID", "default": "", "description": "Approved Fusion Discord guild" },
+        { "key": "FUSION_MEMBERSHIP_ROLE_ID", "default": "", "description": "Approved dedicated membership role" },
+        { "key": "FUSION_MEMBERSHIP_EXCLUSIVE_ROLE", "default": "false", "description": "Confirm the role is exclusively managed by this plugin" },
+        { "key": "FUSION_MEMBERSHIP_INTERVAL_SECONDS", "default": "300", "description": "Delay after each completed scan; 60 to 3600 seconds" }
+      ]
     }
   ]
 }

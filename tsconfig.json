@@ -14,5 +14,5 @@
       "@installed/governance/*": ["governance/*"]
     }
   },
-  "include": ["governance/**/*.ts", "host-stubs/**/*.ts"]
+  "include": ["governance/**/*.ts", "membership/**/*.ts", "host-stubs/**/*.ts"]
 }
