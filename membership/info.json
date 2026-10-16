@@ -1,0 +1,12 @@
+{
+  "name": "membership",
+  "version": "1.0.0",
+  "description": "Fusion membership verification through Underground CRM",
+  "commands": [
+    { "name": "verify-membership", "path": "verify.ts", "description": "Refresh your linked membership role" }
+  ],
+  "events": [
+    { "name": "ready", "path": "ready.ts" },
+    { "name": "guildMemberAdd", "path": "join.ts" }
+  ]
+}

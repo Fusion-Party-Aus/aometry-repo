@@ -8,6 +8,6 @@ export default defineConfig({
     },
   },
   test: {
-    include: ['governance/**/*.test.ts'],
+    include: ['governance/**/*.test.ts', 'membership/**/*.test.ts'],
   },
 });
